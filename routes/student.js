@@ -20,13 +20,18 @@ router.use((req, res, next) => {
 });
 
 router.get('/lessons', (req, res) => {
-  const rows = db.prepare(`
-    SELECT l.id, l.title FROM lessons l
-    JOIN unlocks u ON u.lesson_id = l.id
+  const lessons = db.prepare(`
+    SELECT 'lesson' AS type, l.id, l.title, u.position
+    FROM lessons l JOIN unlocks u ON u.lesson_id = l.id
     WHERE u.student_id = ?
-    ORDER BY u.position ASC, l.id ASC
   `).all(req.student.id);
-  res.json(rows);
+  const headers = db.prepare(`
+    SELECT 'header' AS type, id, title, position FROM headers WHERE student_id = ?
+  `).all(req.student.id);
+  const items = [...lessons, ...headers].sort(
+    (a, b) => a.position - b.position || (a.type === 'header' ? -1 : 1) || a.id - b.id
+  );
+  res.json(items);
 });
 
 router.get('/lessons/:id', (req, res) => {

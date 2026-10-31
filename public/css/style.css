@@ -46,3 +46,9 @@ button:disabled:hover { background: #fff; }
 .block-edit textarea { min-height: 80px; }
 .add-row { flex-wrap: wrap; margin: .4rem 0 1rem; }
 form > button.link { background: none; color: inherit; border: none; }
+input[type=search] { width: 100%; padding: .6rem; border: 1px solid #c8cdd6; border-radius: 6px; font: inherit; margin-bottom: .8rem; }
+#headerForm { flex-direction: row; margin-bottom: .5rem; }
+li.header-row { background: #f6f7f9; font-weight: 600; padding-left: .5rem; }
+#list h3 { margin: 1.2rem 0 .3rem; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; }
+#list h3:first-child { margin-top: 0; }
+#list button.active { background: #eaf1ff; border-color: #2f6fed; }

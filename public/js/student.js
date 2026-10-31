@@ -17,20 +17,51 @@ async function api(url) {
   return res.json();
 }
 
+
+
+
+let items = [];
+let currentId = null;
+
+const normalize = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
 async function loadList() {
-  const lessons = await api('/api/student/lessons');
-  $('list').replaceChildren();
-  if (!lessons.length) {
-    $('list').innerHTML = '<p class="muted">No lessons unlocked yet.</p>';
+  items = await api('/api/student/lessons');
+  renderList();
+}
+
+function renderList() {
+  const list = $('list');
+  const query = normalize($('search').value.trim());
+  list.replaceChildren();
+
+  if (!items.some((i) => i.type === 'lesson')) {
+    list.append(mk('p', 'muted', 'No lessons unlocked yet.'));
     return;
   }
-  lessons.forEach((l) => {
-    const btn = document.createElement('button');
-    btn.textContent = l.title;
-    btn.onclick = () => openLesson(l.id);
-    $('list').append(btn);
+
+  let pendingHeader = null;
+  let shown = 0;
+  items.forEach((item) => {
+    if (item.type === 'header') {
+      pendingHeader = item;
+      return;
+    }
+    if (query && !normalize(item.title).includes(query)) return;
+    if (pendingHeader) {
+      list.append(mk('h3', 'list-header', pendingHeader.title));
+      pendingHeader = null;
+    }
+    const btn = mk('button', item.id === currentId ? 'active' : '', item.title);
+    btn.onclick = () => openLesson(item.id);
+    list.append(btn);
+    shown++;
   });
+
+  if (!shown) list.append(mk('p', 'muted', 'No lessons match your search.'));
 }
+
+$('search').addEventListener('input', renderList);
 
 
 
@@ -117,6 +148,8 @@ async function openLesson(id) {
     $('lesson').textContent = lesson.error;
     return;
   }
+  currentId = id;
+  renderList();
   const title = mk('h2', '', lesson.title);
   $('lesson').replaceChildren(title, ...parseBlocks(lesson.body).map((b) => renderBlock(b, lesson)));
 }

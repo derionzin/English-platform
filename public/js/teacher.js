@@ -106,36 +106,50 @@ async function renderUnlocks() {
   $('unlockTitle').textContent = student ? `${student.name}'s lessons` : 'Student lessons';
   if (!student) return;
 
-  const order = await api(`/students/${student.id}/unlocks`);
+  const items = await api(`/students/${student.id}/unlocks`);
   const byId = new Map(lessons.map((l) => [l.id, l]));
-  const unlocked = order.map((id) => byId.get(id)).filter(Boolean);
-  const locked = lessons.filter((l) => !order.includes(l.id));
-  const ids = unlocked.map((l) => l.id);
+  const openIds = new Set(items.filter((i) => i.type === 'lesson').map((i) => i.id));
+  const locked = lessons.filter((l) => !openIds.has(l.id));
+  const order = items.map(({ type, id }) => ({ type, id }));
 
   const openList = $('unlocked');
   openList.replaceChildren();
-  if (!unlocked.length) openList.append(el('li', { className: 'muted', textContent: 'Nothing unlocked yet.' }));
-  unlocked.forEach((l, i) => {
-    openList.append(
-      el('li', {},
-        el('span', { className: 'grow', textContent: `${i + 1}. ${l.title}` }),
-        el('button', {
-          textContent: '↑', title: 'Move up', disabled: i === 0,
-          onclick: () => moveLesson(student.id, ids, i, -1),
-        }),
-        el('button', {
-          textContent: '↓', title: 'Move down', disabled: i === ids.length - 1,
-          onclick: () => moveLesson(student.id, ids, i, 1),
-        }),
-        el('button', {
-          className: 'danger', textContent: 'Remove',
-          onclick: async () => {
-            await api(`/students/${student.id}/unlocks/${l.id}`, 'DELETE');
-            renderUnlocks();
-          },
-        })
-      )
+  if (!items.length) openList.append(el('li', { className: 'muted', textContent: 'Nothing unlocked yet.' }));
+  items.forEach((item, i) => {
+    const isHeader = item.type === 'header';
+    const row = el('li', { className: isHeader ? 'header-row' : '' },
+      el('span', { className: 'grow', textContent: isHeader ? item.title : byId.get(item.id).title }),
+      el('button', {
+        textContent: '↑', title: 'Move up', disabled: i === 0,
+        onclick: () => moveItem(student.id, order, i, -1),
+      }),
+      el('button', {
+        textContent: '↓', title: 'Move down', disabled: i === items.length - 1,
+        onclick: () => moveItem(student.id, order, i, 1),
+      })
     );
+    if (isHeader) {
+      row.append(el('button', {
+        textContent: 'Rename',
+        onclick: async () => {
+          const title = prompt('Header text', item.title);
+          if (!title || !title.trim()) return;
+          await api(`/students/${student.id}/headers/${item.id}`, 'PUT', { title });
+          renderUnlocks();
+        },
+      }));
+    }
+    row.append(el('button', {
+      className: 'danger', textContent: 'Remove',
+      onclick: async () => {
+        const url = isHeader
+          ? `/students/${student.id}/headers/${item.id}`
+          : `/students/${student.id}/unlocks/${item.id}`;
+        await api(url, 'DELETE');
+        renderUnlocks();
+      },
+    }));
+    openList.append(row);
   });
 
   const lockedList = $('locked');
@@ -157,27 +171,20 @@ async function renderUnlocks() {
   });
 }
 
-async function moveLesson(studentId, ids, from, delta) {
+async function moveItem(studentId, order, from, delta) {
   const to = from + delta;
-  [ids[from], ids[to]] = [ids[to], ids[from]];
-  await api(`/students/${studentId}/unlock-order`, 'PUT', { order: ids });
+  [order[from], order[to]] = [order[to], order[from]];
+  await api(`/students/${studentId}/unlock-order`, 'PUT', { order });
   renderUnlocks();
 }
 
-$('studentForm').addEventListener('submit', async (e) => {
+$('headerForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  await api('/students', 'POST', { name: $('studentName').value });
-  $('studentName').value = '';
-  refresh();
+  if (!selected) return;
+  await api(`/students/${selected}/headers`, 'POST', { title: $('headerTitle').value });
+  $('headerForm').reset();
+  renderUnlocks();
 });
-
-async function deleteStudent(s) {
-  if (!confirm(`Delete ${s.name} and all their progress?`)) return;
-  await api('/students/' + s.id, 'DELETE');
-  if (selected === s.id) selected = null;
-  refresh();
-}
-
 
 
 
