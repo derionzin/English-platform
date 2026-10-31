@@ -1,4 +1,5 @@
 const $ = (id) => document.getElementById(id);
+
 let token = sessionStorage.getItem('teacherToken');
 let students = [];
 let lessons = [];
@@ -15,7 +16,9 @@ function el(tag, props = {}, ...children) {
 
 const normalize = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 const matches = (text, query) => normalize(text).includes(normalize(query.trim()));
+const makeId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
+/* ---------- Server calls and login ---------- */
 
 async function api(url, method = 'GET', body) {
   const res = await fetch('/api/teacher' + url, {
@@ -23,17 +26,21 @@ async function api(url, method = 'GET', body) {
     headers: { 'Content-Type': 'application/json', 'x-teacher-token': token || '' },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const data = await res.json();
+  let data = {};
+  try {
+    data = await res.json();
+  } catch {}
   if (res.status === 401 && url !== '/login') {
-    logout();
+    logout('Your session expired. Please log in again.');
     throw new Error('Not logged in');
   }
-  if (!res.ok) throw new Error(data.error || 'Something went wrong');
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
 }
 
 window.addEventListener('unhandledrejection', (e) => {
-  if (e.reason.message !== 'Not logged in') alert(e.reason.message);
+  const message = e.reason && e.reason.message;
+  if (message && message !== 'Not logged in') alert(message);
 });
 
 $('loginForm').addEventListener('submit', async (e) => {
@@ -56,13 +63,14 @@ function showPanel() {
   refresh();
 }
 
-function logout() {
+function logout(message = '') {
   token = null;
   sessionStorage.removeItem('teacherToken');
   $('panel').hidden = true;
   $('login').hidden = false;
+  $('loginError').textContent = message;
 }
-$('logout').onclick = logout;
+$('logout').onclick = () => logout();
 
 async function refresh() {
   [students, lessons] = await Promise.all([api('/students'), api('/lessons')]);
@@ -71,10 +79,7 @@ async function refresh() {
   renderUnlocks();
 }
 
-
-
-
-
+/* ---------- Students ---------- */
 
 function renderStudents() {
   const ul = $('students');
@@ -100,6 +105,22 @@ function renderStudents() {
   });
 }
 
+$('studentForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  await api('/students', 'POST', { name: $('studentName').value });
+  $('studentName').value = '';
+  refresh();
+});
+
+async function deleteStudent(s) {
+  if (!confirm(`Delete ${s.name} and all their progress?`)) return;
+  await api('/students/' + s.id, 'DELETE');
+  if (selected === s.id) selected = null;
+  refresh();
+}
+
+/* ---------- Lessons list ---------- */
+
 function renderLessons() {
   const ul = $('lessons');
   ul.replaceChildren();
@@ -121,18 +142,24 @@ function renderLessons() {
   });
 }
 
+async function deleteLesson(l) {
+  if (!confirm(`Delete "${l.title}"?`)) return;
+  await api('/lessons/' + l.id, 'DELETE');
+  if (editingId === l.id) resetLessonForm();
+  refresh();
+}
 
-
-
-
-
+/* ---------- Per-student unlocks and headers ---------- */
 
 async function renderUnlocks() {
   const student = students.find((s) => s.id === selected);
   $('unlockPanel').hidden = !student;
   $('unlockHint').hidden = !!student;
   $('unlockTitle').textContent = student ? `${student.name}'s lessons` : 'Student lessons';
-  if (!student) return;
+  if (!student) {
+    lockedState = { student: null, locked: [] };
+    return;
+  }
 
   const items = await api(`/students/${student.id}/unlocks`);
   const byId = new Map(lessons.map((l) => [l.id, l]));
@@ -143,10 +170,14 @@ async function renderUnlocks() {
   const openList = $('unlocked');
   openList.replaceChildren();
   if (!items.length) openList.append(el('li', { className: 'muted', textContent: 'Nothing unlocked yet.' }));
+
   items.forEach((item, i) => {
     const isHeader = item.type === 'header';
+    const lesson = byId.get(item.id);
+    if (!isHeader && !lesson) return;
+
     const row = el('li', { className: isHeader ? 'header-row' : '' },
-      el('span', { className: 'grow', textContent: isHeader ? item.title : byId.get(item.id).title }),
+      el('span', { className: 'grow', textContent: isHeader ? item.title : lesson.title }),
       el('button', {
         textContent: '↑', title: 'Move up', disabled: i === 0,
         onclick: () => moveItem(student.id, order, i, -1),
@@ -182,36 +213,34 @@ async function renderUnlocks() {
 
   lockedState = { student, locked };
   renderLocked();
+}
 
-
-
-  function renderLocked() {
-    const { student, locked } = lockedState;
-    const list = $('locked');
-    list.replaceChildren();
-    if (!student) return;
-    const shown = locked.filter((l) => matches(l.title, $('lockedSearch').value));
-    if (!shown.length) {
-      list.append(el('li', {
-        className: 'muted',
-        textContent: locked.length ? 'No lessons match your search.' : 'Everything is unlocked.',
-      }));
-    }
-    shown.forEach((l) => {
-      list.append(
-        el('li', {},
-          el('span', { className: 'grow', textContent: l.title }),
-          el('button', {
-            textContent: 'Add',
-            onclick: async () => {
-              await api(`/students/${student.id}/unlocks`, 'POST', { lessonId: l.id });
-              renderUnlocks();
-            },
-          })
-        )
-      );
-    });
+function renderLocked() {
+  const { student, locked } = lockedState;
+  const list = $('locked');
+  list.replaceChildren();
+  if (!student) return;
+  const shown = locked.filter((l) => matches(l.title, $('lockedSearch').value));
+  if (!shown.length) {
+    list.append(el('li', {
+      className: 'muted',
+      textContent: locked.length ? 'No lessons match your search.' : 'Everything is unlocked.',
+    }));
   }
+  shown.forEach((l) => {
+    list.append(
+      el('li', {},
+        el('span', { className: 'grow', textContent: l.title }),
+        el('button', {
+          textContent: 'Add',
+          onclick: async () => {
+            await api(`/students/${student.id}/unlocks`, 'POST', { lessonId: l.id });
+            renderUnlocks();
+          },
+        })
+      )
+    );
+  });
 }
 
 async function moveItem(studentId, order, from, delta) {
@@ -229,14 +258,7 @@ $('headerForm').addEventListener('submit', async (e) => {
   renderUnlocks();
 });
 
-
-
-
-
-
-
-
-
+/* ---------- Lesson editor (blocks) ---------- */
 
 const BLOCK_LABELS = {
   text: 'Text',
@@ -350,14 +372,10 @@ function renderBlocks() {
   });
 }
 
-const makeId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-
 function cleanBlocks() {
   return blocks
     .filter((b) => b.type !== 'text' || b.html.trim())
     .map((b) => {
-      if ((b.type === 'open' || b.type === 'choice') && !b.id) b.id = makeId();
-
       if (b.type === 'choice' && (!b.question.trim() || b.options.some((o) => !o.trim()))) {
         throw new Error('Multiple choice blocks need a question and no empty options.');
       }
@@ -370,6 +388,7 @@ function cleanBlocks() {
       if (b.type === 'game' && !b.label.trim()) {
         throw new Error('Game blocks need button text.');
       }
+      if ((b.type === 'open' || b.type === 'choice') && !b.id) b.id = makeId();
       return b;
     });
 }
@@ -410,21 +429,11 @@ function resetLessonForm() {
 }
 $('lessonCancel').onclick = resetLessonForm;
 
+/* ---------- Search boxes and start ---------- */
+
 $('studentSearch').addEventListener('input', renderStudents);
 $('lessonSearch').addEventListener('input', renderLessons);
 $('lockedSearch').addEventListener('input', renderLocked);
-
-
-async function deleteLesson(l) {
-  if (!confirm(`Delete "${l.title}"?`)) return;
-  await api('/lessons/' + l.id, 'DELETE');
-  refresh();
-}
-
-async function unlockAll(l) {
-  await api(`/lessons/${l.id}/unlock-all`, 'POST');
-  renderUnlocks();
-}
 
 resetLessonForm();
 if (token) showPanel();

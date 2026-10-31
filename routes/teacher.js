@@ -3,19 +3,41 @@ const crypto = require('crypto');
 const db = require('../db/db');
 
 const router = express.Router();
-const tokens = new Set();
+const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
+
+function sign(value) {
+  return crypto
+    .createHmac('sha256', 'teacher-session:' + (process.env.TEACHER_PASSWORD || ''))
+    .update(value)
+    .digest('hex');
+}
+
+function makeToken() {
+  const expires = String(Date.now() + SESSION_MS);
+  return `${expires}.${sign(expires)}`;
+}
+
+function validToken(token) {
+  if (!token || !process.env.TEACHER_PASSWORD) return false;
+  const [expires, signature] = String(token).split('.');
+  if (!expires || !signature || Number(expires) < Date.now()) return false;
+  const a = Buffer.from(signature);
+  const b = Buffer.from(sign(expires));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 router.post('/login', (req, res) => {
+  if (!process.env.TEACHER_PASSWORD) {
+    return res.status(500).json({ error: 'TEACHER_PASSWORD is not set in the .env file' });
+  }
   if (req.body.password !== process.env.TEACHER_PASSWORD) {
     return res.status(401).json({ error: 'Wrong password' });
   }
-  const token = crypto.randomBytes(24).toString('hex');
-  tokens.add(token);
-  res.json({ token });
+  res.json({ token: makeToken() });
 });
 
 router.use((req, res, next) => {
-  if (!tokens.has(req.get('x-teacher-token'))) {
+  if (!validToken(req.get('x-teacher-token'))) {
     return res.status(401).json({ error: 'Not logged in' });
   }
   next();
@@ -69,33 +91,27 @@ router.delete('/lessons/:id', (req, res) => {
 });
 
 
-
-
-
-router.delete('/students/:id/unlocks/:lessonId', (req, res) => {
-  db.prepare('DELETE FROM unlocks WHERE student_id = ? AND lesson_id = ?')
-    .run(req.params.id, req.params.lessonId);
-  res.json({ ok: true });
-});
-
-
-
-
 function nextPosition(studentId) {
-  const a = db.prepare('SELECT COALESCE(MAX(position), 0) AS m FROM unlocks WHERE student_id = ?').get(studentId).m;
-  const b = db.prepare('SELECT COALESCE(MAX(position), 0) AS m FROM headers WHERE student_id = ?').get(studentId).m;
+  const a = db
+    .prepare('SELECT COALESCE(MAX(position), 0) AS m FROM unlocks WHERE student_id = ?')
+    .get(studentId).m;
+  const b = db
+    .prepare('SELECT COALESCE(MAX(position), 0) AS m FROM headers WHERE student_id = ?')
+    .get(studentId).m;
   return Math.max(a, b) + 1;
 }
 
+const rank = (type) => (type === 'header' ? 0 : 1);
+
 router.get('/students/:id/unlocks', (req, res) => {
-  const lessons = db
+  const lessonRows = db
     .prepare("SELECT 'lesson' AS type, lesson_id AS id, position FROM unlocks WHERE student_id = ?")
     .all(req.params.id);
-  const headers = db
+  const headerRows = db
     .prepare("SELECT 'header' AS type, id, title, position FROM headers WHERE student_id = ?")
     .all(req.params.id);
-  const items = [...lessons, ...headers].sort(
-    (a, b) => a.position - b.position || (a.type === 'header' ? -1 : 1) || a.id - b.id
+  const items = [...lessonRows, ...headerRows].sort(
+    (a, b) => a.position - b.position || rank(a.type) - rank(b.type) || a.id - b.id
   );
   res.json(items);
 });
@@ -108,6 +124,12 @@ router.post('/students/:id/unlocks', (req, res) => {
   } catch {
     res.status(400).json({ error: 'Could not unlock that lesson' });
   }
+});
+
+router.delete('/students/:id/unlocks/:lessonId', (req, res) => {
+  db.prepare('DELETE FROM unlocks WHERE student_id = ? AND lesson_id = ?')
+    .run(req.params.id, req.params.lessonId);
+  res.json({ ok: true });
 });
 
 router.post('/students/:id/headers', (req, res) => {
@@ -142,10 +164,5 @@ router.put('/students/:id/unlock-order', (req, res) => {
   })(req.body.order || []);
   res.json({ ok: true });
 });
-
-
-
-
-
 
 module.exports = router;
