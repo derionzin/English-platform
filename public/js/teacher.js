@@ -2,15 +2,20 @@ const $ = (id) => document.getElementById(id);
 let token = sessionStorage.getItem('teacherToken');
 let students = [];
 let lessons = [];
-let blocks = [];
 let selected = null;
 let editingId = null;
+let blocks = [];
+let lockedState = { student: null, locked: [] };
 
 function el(tag, props = {}, ...children) {
   const node = Object.assign(document.createElement(tag), props);
   children.forEach((c) => node.append(c));
   return node;
 }
+
+const normalize = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const matches = (text, query) => normalize(text).includes(normalize(query.trim()));
+
 
 async function api(url, method = 'GET', body) {
   const res = await fetch('/api/teacher' + url, {
@@ -66,11 +71,22 @@ async function refresh() {
   renderUnlocks();
 }
 
+
+
+
+
+
 function renderStudents() {
   const ul = $('students');
   ul.replaceChildren();
-  if (!students.length) ul.append(el('li', { className: 'muted', textContent: 'No students yet.' }));
-  students.forEach((s) => {
+  const shown = students.filter((s) => matches(s.name, $('studentSearch').value));
+  if (!shown.length) {
+    ul.append(el('li', {
+      className: 'muted',
+      textContent: students.length ? 'No students match your search.' : 'No students yet.',
+    }));
+  }
+  shown.forEach((s) => {
     ul.append(
       el('li', { className: s.id === selected ? 'selected' : '' },
         el('button', {
@@ -87,8 +103,14 @@ function renderStudents() {
 function renderLessons() {
   const ul = $('lessons');
   ul.replaceChildren();
-  if (!lessons.length) ul.append(el('li', { className: 'muted', textContent: 'No lessons yet.' }));
-  lessons.forEach((l) => {
+  const shown = lessons.filter((l) => matches(l.title, $('lessonSearch').value));
+  if (!shown.length) {
+    ul.append(el('li', {
+      className: 'muted',
+      textContent: lessons.length ? 'No lessons match your search.' : 'No lessons yet.',
+    }));
+  }
+  shown.forEach((l) => {
     ul.append(
       el('li', {},
         el('span', { className: 'grow', textContent: l.title }),
@@ -98,6 +120,12 @@ function renderLessons() {
     );
   });
 }
+
+
+
+
+
+
 
 async function renderUnlocks() {
   const student = students.find((s) => s.id === selected);
@@ -152,23 +180,38 @@ async function renderUnlocks() {
     openList.append(row);
   });
 
-  const lockedList = $('locked');
-  lockedList.replaceChildren();
-  if (!locked.length) lockedList.append(el('li', { className: 'muted', textContent: 'Everything is unlocked.' }));
-  locked.forEach((l) => {
-    lockedList.append(
-      el('li', {},
-        el('span', { className: 'grow', textContent: l.title }),
-        el('button', {
-          textContent: 'Add',
-          onclick: async () => {
-            await api(`/students/${student.id}/unlocks`, 'POST', { lessonId: l.id });
-            renderUnlocks();
-          },
-        })
-      )
-    );
-  });
+  lockedState = { student, locked };
+  renderLocked();
+
+
+
+  function renderLocked() {
+    const { student, locked } = lockedState;
+    const list = $('locked');
+    list.replaceChildren();
+    if (!student) return;
+    const shown = locked.filter((l) => matches(l.title, $('lockedSearch').value));
+    if (!shown.length) {
+      list.append(el('li', {
+        className: 'muted',
+        textContent: locked.length ? 'No lessons match your search.' : 'Everything is unlocked.',
+      }));
+    }
+    shown.forEach((l) => {
+      list.append(
+        el('li', {},
+          el('span', { className: 'grow', textContent: l.title }),
+          el('button', {
+            textContent: 'Add',
+            onclick: async () => {
+              await api(`/students/${student.id}/unlocks`, 'POST', { lessonId: l.id });
+              renderUnlocks();
+            },
+          })
+        )
+      );
+    });
+  }
 }
 
 async function moveItem(studentId, order, from, delta) {
@@ -352,7 +395,9 @@ function resetLessonForm() {
 }
 $('lessonCancel').onclick = resetLessonForm;
 
-
+$('studentSearch').addEventListener('input', renderStudents);
+$('lessonSearch').addEventListener('input', renderLessons);
+$('lockedSearch').addEventListener('input', renderLocked);
 
 
 async function deleteLesson(l) {

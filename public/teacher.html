@@ -11,28 +11,43 @@
   <section id="login" class="card">
     <h1>Teacher login</h1>
     <form id="loginForm">
-        <input type="password" id="password" placeholder="Password" required>
-        <button>Log in</button>
+      <input type="password" id="password" placeholder="Password" required>
+      <button>Log in</button>
     </form>
     <p id="loginError" class="error"></p>
     <p class="teacher-link"><a href="/">Back to student page</a></p>
   </section>
+
   <section id="panel" hidden>
     <header class="bar">
       <strong>Teacher panel</strong>
       <button id="logout" class="link">Log out</button>
     </header>
+
     <div class="grid">
+
       <div class="col">
         <h2>Students</h2>
+
+        <h3>Existing students</h3>
+        <input type="search" id="studentSearch" placeholder="Search students..." autocomplete="off">
+        <ul id="students" class="scroll"></ul>
+
+        <h3>Add new student</h3>
         <form id="studentForm">
-          <input type="text" id="studentName" placeholder="New student name" required>
+          <input type="text" id="studentName" placeholder="Student name" required>
           <button>Add student</button>
         </form>
-        <ul id="students"></ul>
       </div>
+
       <div class="col">
         <h2>Lessons</h2>
+
+        <h3>Existing lessons</h3>
+        <input type="search" id="lessonSearch" placeholder="Search lessons..." autocomplete="off">
+        <ul id="lessons" class="scroll"></ul>
+
+        <h3>Add new lesson</h3>
         <form id="lessonForm">
           <input type="text" id="lessonTitle" placeholder="Lesson title" required>
           <div id="blocks"></div>
@@ -45,24 +60,30 @@
           <button id="lessonSubmit">Add lesson</button>
           <button type="button" id="lessonCancel" class="link" hidden>Cancel editing</button>
         </form>
-        <ul id="lessons"></ul>
       </div>
+
       <div class="col">
         <h2 id="unlockTitle">Student lessons</h2>
         <p id="unlockHint" class="muted">Select a student to manage their lessons.</p>
+
         <div id="unlockPanel" hidden>
-            <form id="headerForm">
-              <input type="text" id="headerTitle" class="grow" placeholder="New header (e.g. Unit 1: Greetings)" required>
-              <button>Add header</button>
-            </form>
-            <h3>Unlocked (in the order they see them)</h3>
-            <ul id="unlocked"></ul>
-            <h3>Locked</h3>
-            <ul id="locked"></ul>
+          <h3>Add new header</h3>
+          <form id="headerForm">
+            <input type="text" id="headerTitle" class="grow" placeholder="e.g. Unit 1: Greetings" required>
+            <button>Add header</button>
+          </form>
+
+          <h3>Unlocked (order students see them)</h3>
+          <ul id="unlocked" class="scroll"></ul>
+
+          <h3>Locked</h3>
+          <input type="search" id="lockedSearch" placeholder="Search locked lessons..." autocomplete="off">
+          <ul id="locked" class="scroll"></ul>
         </div>
-    </div>
+      </div>
     </div>
   </section>
+
   <script src="js/teacher.js"></script>
 </body>
 </html>

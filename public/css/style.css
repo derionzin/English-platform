@@ -103,3 +103,7 @@ li.header-row { background: var(--subtle); font-weight: 600; padding-left: .5rem
 #list button.active { background: var(--accent-soft); border-color: var(--accent); }
 
 #themeToggle { position: fixed; right: 1rem; bottom: 1rem; z-index: 10; border-radius: 999px; padding: .45rem .9rem; box-shadow: 0 1px 4px var(--shadow); }
+
+.scroll { max-height: 45vh; overflow-y: auto; padding-right: .3rem; }
+#blocks { max-height: 45vh; overflow-y: auto; padding-right: .3rem; }
+.col input[type=search] { margin-bottom: .6rem; }
