@@ -243,6 +243,7 @@ const BLOCK_LABELS = {
   choice: 'Multiple choice',
   open: 'Open question',
   reveal: 'Hidden text',
+  game: 'Game button',
 };
 
 function parseBlocks(body) {
@@ -257,6 +258,7 @@ function newBlock(type) {
   if (type === 'text') return { type, html: '' };
   if (type === 'choice') return { type, question: '', options: ['', ''], correct: 0, explanation: '' };
   if (type === 'open') return { type, question: '' };
+  if (type === 'game') return { type, label: 'Play the game' };
   return { type, label: 'Click to reveal', content: '' };
 }
 
@@ -337,6 +339,12 @@ function renderBlocks() {
     } else if (b.type === 'reveal') {
       card.append(textInput(b, 'label', 'Button text (e.g. Show hint)'));
       card.append(textArea(b, 'content', 'Hidden text (HTML allowed)', 3));
+    } else if (b.type === 'game') {
+      card.append(textInput(b, 'label', 'Button text (e.g. Play the game)'));
+      card.append(el('span', {
+        className: 'muted',
+        textContent: "The student's points from this lesson are carried into the game.",
+      }));
     }
     box.append(card);
   });
@@ -358,6 +366,9 @@ function cleanBlocks() {
       }
       if (b.type === 'reveal' && (!b.label.trim() || !b.content.trim())) {
         throw new Error('Hidden text blocks need button text and hidden text.');
+      }
+      if (b.type === 'game' && !b.label.trim()) {
+        throw new Error('Game blocks need button text.');
       }
       return b;
     });

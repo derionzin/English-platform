@@ -208,6 +208,17 @@ function renderBlock(block, lesson) {
     const btn = mk('button', '', block.label || 'Click to reveal');
     btn.onclick = () => { content.hidden = !content.hidden; };
     box.append(btn, content);
+  } else if (block.type === 'game') {
+    const btn = mk('button', 'game-btn', block.label || 'Play the game');
+    btn.onclick = () => {
+      sessionStorage.setItem('gameEntry', JSON.stringify({
+        points: lessonPoints,
+        lessonId: lesson.id,
+        lessonTitle: lesson.title,
+      }));
+      location.href = '/game.html';
+    };
+    box.append(btn);
   }
   return box;
 }
