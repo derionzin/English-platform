@@ -41,12 +41,33 @@ router.get('/lessons/:id', (req, res) => {
     WHERE u.student_id = ? AND l.id = ?
   `).get(req.student.id, req.params.id);
   if (!lesson) return res.status(403).json({ error: 'This lesson is not available yet' });
+
+  const saved = db
+    .prepare('SELECT block_key, answer FROM open_answers WHERE student_id = ? AND lesson_id = ?')
+    .all(req.student.id, lesson.id);
+  lesson.answers = Object.fromEntries(saved.map((r) => [r.block_key, r.answer]));
   res.json(lesson);
 });
 
 router.post('/answers', (req, res) => {
-  const { lessonId, type, question, answer, correct } = req.body;
+  const { lessonId, type, question, answer, correct, blockKey } = req.body;
   const lesson = db.prepare('SELECT title FROM lessons WHERE id = ?').get(lessonId);
+
+  if (type === 'open') {
+    const unlocked = db
+      .prepare('SELECT 1 FROM unlocks WHERE student_id = ? AND lesson_id = ?')
+      .get(req.student.id, lessonId);
+    if (!unlocked || !blockKey || !String(answer || '').trim()) {
+      return res.status(400).json({ error: 'Could not save that answer' });
+    }
+    db.prepare(`
+      INSERT INTO open_answers (student_id, lesson_id, block_key, answer)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(student_id, lesson_id, block_key)
+      DO UPDATE SET answer = excluded.answer, updated_at = CURRENT_TIMESTAMP
+    `).run(req.student.id, lessonId, blockKey, answer);
+  }
+
   const result = type === 'choice' ? (correct ? ' (correct)' : ' (wrong)') : '';
   console.log(
     `[${new Date().toLocaleTimeString()}] ${req.student.name} | ${lesson ? lesson.title : 'Lesson ' + lessonId} | ${question}\n    -> ${answer}${result}`

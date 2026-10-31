@@ -81,13 +81,18 @@ function mk(tag, className, text) {
   return node;
 }
 
-function logAnswer(lesson, data) {
+async function logAnswer(lesson, data) {
   console.log(`[${student.name}] ${lesson.title}`, data);
-  fetch('/api/student/answers', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-student-id': student.id },
-    body: JSON.stringify({ lessonId: lesson.id, ...data }),
-  });
+  try {
+    const res = await fetch('/api/student/answers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-student-id': student.id },
+      body: JSON.stringify({ lessonId: lesson.id, ...data }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 function renderBlock(block, lesson) {
@@ -113,22 +118,33 @@ function renderBlock(block, lesson) {
     });
     box.append(mk('p', 'question', block.question), ...buttons, feedback);
   } else if (block.type === 'open') {
+    const key = block.id || block.question;
+    const saved = (lesson.answers || {})[key];
     const input = mk('textarea');
     input.placeholder = 'Write your answer here...';
+    input.value = saved || '';
     const error = mk('p', 'error');
-    const status = mk('p', 'feedback');
-    const send = mk('button', '', 'Send answer');
-    input.oninput = () => { error.textContent = ''; };
-    send.onclick = () => {
+    const status = mk('p', 'feedback', saved ? 'This is your last saved answer.' : '');
+    const send = mk('button', '', saved ? 'Update answer' : 'Send answer');
+    input.oninput = () => {
+      error.textContent = '';
+      status.textContent = '';
+    };
+    send.onclick = async () => {
       const answer = input.value.trim();
       if (!answer) {
         error.textContent = 'Write an answer first.';
         return;
       }
-      input.readOnly = true;
-      send.hidden = true;
-      status.textContent = 'Answer sent!';
-      logAnswer(lesson, { type: 'open', question: block.question, answer });
+      send.disabled = true;
+      const ok = await logAnswer(lesson, { type: 'open', blockKey: key, question: block.question, answer });
+      send.disabled = false;
+      if (ok) {
+        status.textContent = 'Answer saved!';
+        send.textContent = 'Update answer';
+      } else {
+        error.textContent = "Couldn't save your answer. Please try again.";
+      }
     };
     box.append(mk('p', 'question', block.question), input, error, send, status);
   } else if (block.type === 'reveal') {

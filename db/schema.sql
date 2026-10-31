@@ -19,3 +19,12 @@ CREATE TABLE IF NOT EXISTS headers (
   title TEXT NOT NULL,
   position INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS open_answers (
+  student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  lesson_id INTEGER NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
+  block_key TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (student_id, lesson_id, block_key)
+);
