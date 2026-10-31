@@ -168,6 +168,7 @@ async function openLesson(id) {
   renderList();
   const title = mk('h2', '', lesson.title);
   $('lesson').replaceChildren(title, ...parseBlocks(lesson.body).map((b) => renderBlock(b, lesson)));
+  $('lesson').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 loadList();
