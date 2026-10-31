@@ -49,15 +49,20 @@ router.get('/lessons/:id', (req, res) => {
   res.json(lesson);
 });
 
+
+
+
+
 router.post('/answers', (req, res) => {
   const { lessonId, type, question, answer, correct, blockKey } = req.body;
   const lesson = db.prepare('SELECT title FROM lessons WHERE id = ?').get(lessonId);
+  const unlocked = db
+    .prepare('SELECT 1 FROM unlocks WHERE student_id = ? AND lesson_id = ?')
+    .get(req.student.id, lessonId);
+  if (!lesson || !unlocked) return res.status(403).json({ error: 'This lesson is not available' });
 
   if (type === 'open') {
-    const unlocked = db
-      .prepare('SELECT 1 FROM unlocks WHERE student_id = ? AND lesson_id = ?')
-      .get(req.student.id, lessonId);
-    if (!unlocked || !blockKey || !String(answer || '').trim()) {
+    if (!blockKey || !String(answer || '').trim()) {
       return res.status(400).json({ error: 'Could not save that answer' });
     }
     db.prepare(`
@@ -70,7 +75,7 @@ router.post('/answers', (req, res) => {
 
   const result = type === 'choice' ? (correct ? ' (correct)' : ' (wrong)') : '';
   console.log(
-    `[${new Date().toLocaleTimeString()}] ${req.student.name} | ${lesson ? lesson.title : 'Lesson ' + lessonId} | ${question}\n    -> ${answer}${result}`
+    `[${new Date().toLocaleTimeString()}] ${req.student.name} | ${lesson.title} | ${question}\n    -> ${answer}${result}`
   );
   res.json({ ok: true });
 });

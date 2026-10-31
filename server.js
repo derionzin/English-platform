@@ -20,3 +20,12 @@ app.listen(PORT, () => {
 
 app.use('/api/teacher', require('./routes/teacher'));
 app.use('/api/student', require('./routes/student'));
+
+app.use((err, req, res, next) => {
+  console.error('Request error:', req.method, req.url, '\n', err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: 'Server error' });
+});
+
+process.on('uncaughtException', (err) => console.error('Uncaught exception:', err));
+process.on('unhandledRejection', (err) => console.error('Unhandled rejection:', err));

@@ -6,6 +6,7 @@ const db = new Database(path.join(__dirname, 'data.sqlite'));
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 db.exec(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
+db.exec('DROP TABLE IF EXISTS choice_points');
 
 module.exports = db;
 

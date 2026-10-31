@@ -348,7 +348,7 @@ function cleanBlocks() {
   return blocks
     .filter((b) => b.type !== 'text' || b.html.trim())
     .map((b) => {
-      if (b.type === 'open' && !b.id) b.id = makeId();
+      if ((b.type === 'open' || b.type === 'choice') && !b.id) b.id = makeId();
 
       if (b.type === 'choice' && (!b.question.trim() || b.options.some((o) => !o.trim()))) {
         throw new Error('Multiple choice blocks need a question and no empty options.');

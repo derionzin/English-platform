@@ -5,12 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>My lessons</title>
   <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <script src="js/theme.js"></script>
 </head>
 <body>
   <header class="bar">
     <strong id="hello"></strong>
-    <button id="leave" class="link">Not you?</button>
+    <div class="row">
+      <span id="points" class="points" title="Points in this lesson">★ <span id="pointsValue">0</span> pts</span>
+      <button id="sound" class="link" title="Turn sound on or off"></button>
+      <button id="leave" class="link">Not you?</button>
+    </div>
   </header>
   <main class="layout">
     <article id="lesson"><p class="muted">Pick a lesson to start.</p></article>

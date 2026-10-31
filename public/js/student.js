@@ -2,69 +2,36 @@ const $ = (id) => document.getElementById(id);
 const student = JSON.parse(localStorage.getItem('student') || 'null');
 if (!student) location.href = '/';
 
+let items = [];
+let currentId = null;
+
+const normalize = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
 $('hello').textContent = `Hi, ${student.name}`;
 $('leave').onclick = () => {
   localStorage.removeItem('student');
   location.href = '/';
 };
 
+function mk(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
 async function api(url) {
-  const res = await fetch(url, { headers: { 'x-student-id': student.id } });
-  if (res.status === 401) {
-    localStorage.removeItem('student');
-    location.href = '/';
-  }
-  return res.json();
-}
-
-
-
-
-let items = [];
-let currentId = null;
-
-const normalize = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-
-async function loadList() {
-  items = await api('/api/student/lessons');
-  renderList();
-}
-
-function renderList() {
-  const list = $('list');
-  const query = normalize($('search').value.trim());
-  list.replaceChildren();
-
-  if (!items.some((i) => i.type === 'lesson')) {
-    list.append(mk('p', 'muted', 'No lessons unlocked yet.'));
-    return;
-  }
-
-  let pendingHeader = null;
-  let shown = 0;
-  items.forEach((item) => {
-    if (item.type === 'header') {
-      pendingHeader = item;
-      return;
+  try {
+    const res = await fetch(url, { headers: { 'x-student-id': student.id } });
+    if (res.status === 401) {
+      localStorage.removeItem('student');
+      location.href = '/';
     }
-    if (query && !normalize(item.title).includes(query)) return;
-    if (pendingHeader) {
-      list.append(mk('h3', 'list-header', pendingHeader.title));
-      pendingHeader = null;
-    }
-    const btn = mk('button', item.id === currentId ? 'active' : '', item.title);
-    btn.onclick = () => openLesson(item.id);
-    list.append(btn);
-    shown++;
-  });
-
-  if (!shown) list.append(mk('p', 'muted', 'No lessons match your search.'));
+    return await res.json();
+  } catch {
+    return { error: 'Connection problem. Please try again.' };
+  }
 }
-
-$('search').addEventListener('input', renderList);
-
-
-
 
 function parseBlocks(body) {
   try {
@@ -72,13 +39,6 @@ function parseBlocks(body) {
     if (Array.isArray(data)) return data;
   } catch {}
   return [{ type: 'text', html: body }];
-}
-
-function mk(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
 }
 
 async function logAnswer(lesson, data) {
@@ -89,11 +49,100 @@ async function logAnswer(lesson, data) {
       headers: { 'Content-Type': 'application/json', 'x-student-id': student.id },
       body: JSON.stringify({ lessonId: lesson.id, ...data }),
     });
-    return res.ok;
+    return res.ok ? await res.json() : null;
   } catch {
-    return false;
+    return null;
   }
 }
+
+
+
+const POINTS_PER_CORRECT = 10;
+let lessonPoints = 0;
+let shownPoints = 0;
+let countId = 0;
+
+function resetPoints() {
+  countId++;
+  lessonPoints = 0;
+  shownPoints = 0;
+  $('pointsValue').textContent = 0;
+}
+
+function countTo(target) {
+  const id = ++countId;
+  const start = shownPoints;
+  const t0 = performance.now();
+  const step = (now) => {
+    if (id !== countId) return;
+    const p = Math.min((now - t0) / 600, 1);
+    shownPoints = Math.round(start + (target - start) * p);
+    $('pointsValue').textContent = shownPoints;
+    if (p < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+function celebrate(button, awarded) {
+  playDing();
+  lessonPoints += awarded;
+
+  const pop = mk('span', 'float-points', `+${awarded}`);
+  pop.addEventListener('animationend', () => pop.remove());
+  button.append(pop);
+  button.classList.add('pop');
+
+  const badge = $('points');
+  badge.classList.remove('bump');
+  void badge.offsetWidth;
+  badge.classList.add('bump');
+  countTo(lessonPoints);
+}
+
+
+let soundOn = localStorage.getItem('sound') !== 'off';
+let audioCtx = null;
+
+function playDing() {
+  if (!soundOn) return;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const t = audioCtx.currentTime;
+    [660, 880].forEach((freq, i) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      const start = t + i * 0.1;
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.25, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.35);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(start);
+      osc.stop(start + 0.4);
+    });
+  } catch {}
+}
+
+function updateSoundButton() {
+  $('sound').textContent = soundOn ? 'Sound: on' : 'Sound: off';
+}
+
+$('sound').onclick = () => {
+  soundOn = !soundOn;
+  localStorage.setItem('sound', soundOn ? 'on' : 'off');
+  updateSoundButton();
+  playDing();
+};
+updateSoundButton();
+
+
+
+
+
+
+
 
 function renderBlock(block, lesson) {
   const box = mk('div', 'block');
@@ -101,6 +150,7 @@ function renderBlock(block, lesson) {
   if (block.type === 'text') {
     box.innerHTML = block.html;
   } else if (block.type === 'choice') {
+    const key = block.id || block.question;
     let answered = false;
     const feedback = mk('p', 'feedback');
     const buttons = block.options.map((opt, i) => {
@@ -109,10 +159,14 @@ function renderBlock(block, lesson) {
         if (answered) return;
         answered = true;
         box.classList.add('done');
+        const isCorrect = i === block.correct;
         buttons[block.correct].classList.add('correct');
-        if (i !== block.correct) btn.classList.add('wrong');
-        feedback.textContent = (i === block.correct ? 'Correct! ' : 'Not quite. ') + (block.explanation || '');
-        logAnswer(lesson, { type: 'choice', question: block.question, answer: opt, correct: i === block.correct });
+        if (!isCorrect) btn.classList.add('wrong');
+        feedback.textContent = (isCorrect ? 'Correct! ' : 'Not quite. ') + (block.explanation || '');
+        logAnswer(lesson, {
+          type: 'choice', blockKey: key, question: block.question, answer: opt, correct: isCorrect,
+        });
+        if (isCorrect) celebrate(btn, POINTS_PER_CORRECT);
       };
       return btn;
     });
@@ -166,9 +220,52 @@ async function openLesson(id) {
   }
   currentId = id;
   renderList();
+  resetPoints();
   const title = mk('h2', '', lesson.title);
   $('lesson').replaceChildren(title, ...parseBlocks(lesson.body).map((b) => renderBlock(b, lesson)));
-  $('lesson').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
+
+async function loadList() {
+  const data = await api('/api/student/lessons');
+  if (!Array.isArray(data)) {
+    $('list').replaceChildren(mk('p', 'error', 'Could not load your lessons. Refresh the page.'));
+    return;
+  }
+  items = data;
+  renderList();
+}
+
+function renderList() {
+  const list = $('list');
+  const query = normalize($('search').value.trim());
+  list.replaceChildren();
+
+  if (!items.some((i) => i.type === 'lesson')) {
+    list.append(mk('p', 'muted', 'No lessons unlocked yet.'));
+    return;
+  }
+
+  let pendingHeader = null;
+  let shown = 0;
+  items.forEach((item) => {
+    if (item.type === 'header') {
+      pendingHeader = item;
+      return;
+    }
+    if (query && !normalize(item.title).includes(query)) return;
+    if (pendingHeader) {
+      list.append(mk('h3', 'list-header', pendingHeader.title));
+      pendingHeader = null;
+    }
+    const btn = mk('button', item.id === currentId ? 'active' : '', item.title);
+    btn.onclick = () => openLesson(item.id);
+    list.append(btn);
+    shown++;
+  });
+
+  if (!shown) list.append(mk('p', 'muted', 'No lessons match your search.'));
+}
+
+$('search').addEventListener('input', renderList);
 
 loadList();
