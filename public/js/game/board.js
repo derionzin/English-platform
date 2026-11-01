@@ -1,4 +1,6 @@
-import { COLS, ROWS, CELL, TYPES, MOVE_RATE, PIECE_SHEET } from './config.js';
+import {
+  COLS, ROWS, CELL, TYPES, MOVE_RATE, PIECE_SHEET, ALLOW_DIAGONALS, MIN_CHAIN,
+} from './config.js';
 
 export function createBoard(layout) {
   const { boardX, boardY, boardH } = layout;
@@ -16,6 +18,7 @@ export function createBoard(layout) {
       scale: 1,
       clearing: false,
       phase: PIECE_SHEET.desync ? Math.random() * 10 : 0,
+      animStart: null,
     };
   }
 
@@ -25,55 +28,40 @@ export function createBoard(layout) {
     return r >= 0 && r < ROWS && c >= 0 && c < COLS ? { r, c } : null;
   }
 
-  function findMatches() {
-    const found = new Set();
-    const typeAt = (r, c) => (grid[r][c] ? grid[r][c].type : -1);
+  const centerOf = (r, c) => ({ x: cellX(c), y: cellY(r) });
+  const typeAt = (r, c) => (grid[r][c] ? grid[r][c].type : -1);
 
-    for (let r = 0; r < ROWS; r++) {
-      let c = 0;
-      while (c < COLS) {
-        let e = c;
-        while (e + 1 < COLS && typeAt(r, e + 1) === typeAt(r, c)) e++;
-        if (e - c >= 2 && typeAt(r, c) !== -1) {
-          for (let k = c; k <= e; k++) found.add(r * COLS + k);
-        }
-        c = e + 1;
-      }
-    }
-    for (let c = 0; c < COLS; c++) {
-      let r = 0;
-      while (r < ROWS) {
-        let e = r;
-        while (e + 1 < ROWS && typeAt(e + 1, c) === typeAt(r, c)) e++;
-        if (e - r >= 2 && typeAt(r, c) !== -1) {
-          for (let k = r; k <= e; k++) found.add(k * COLS + c);
-        }
-        r = e + 1;
-      }
-    }
-    return found;
+  function areNeighbors(a, b) {
+    const dr = Math.abs(a.r - b.r);
+    const dc = Math.abs(a.c - b.c);
+    if (dr === 0 && dc === 0) return false;
+    return ALLOW_DIAGONALS ? dr <= 1 && dc <= 1 : dr + dc === 1;
   }
 
-  function swapCells(r1, c1, r2, c2) {
-    const tmp = grid[r1][c1];
-    grid[r1][c1] = grid[r2][c2];
-    grid[r2][c2] = tmp;
-  }
-
+  // True if some group of touching same-kind pieces is big enough to clear.
   function hasMoves() {
+    const seen = new Set();
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
-        if (c + 1 < COLS) {
-          swapCells(r, c, r, c + 1);
-          const ok = findMatches().size > 0;
-          swapCells(r, c, r, c + 1);
-          if (ok) return true;
-        }
-        if (r + 1 < ROWS) {
-          swapCells(r, c, r + 1, c);
-          const ok = findMatches().size > 0;
-          swapCells(r, c, r + 1, c);
-          if (ok) return true;
+        if (seen.has(r * COLS + c) || !grid[r][c]) continue;
+        const type = typeAt(r, c);
+        const stack = [{ r, c }];
+        seen.add(r * COLS + c);
+        let size = 0;
+        while (stack.length) {
+          const cur = stack.pop();
+          if (++size >= MIN_CHAIN) return true;
+          for (let dr = -1; dr <= 1; dr++) {
+            for (let dc = -1; dc <= 1; dc++) {
+              const next = { r: cur.r + dr, c: cur.c + dc };
+              if (next.r < 0 || next.r >= ROWS || next.c < 0 || next.c >= COLS) continue;
+              if (!areNeighbors(cur, next)) continue;
+              const key = next.r * COLS + next.c;
+              if (seen.has(key) || typeAt(next.r, next.c) !== type) continue;
+              seen.add(key);
+              stack.push(next);
+            }
+          }
         }
       }
     }
@@ -85,16 +73,7 @@ export function createBoard(layout) {
       grid = [];
       for (let r = 0; r < ROWS; r++) {
         const row = [];
-        for (let c = 0; c < COLS; c++) {
-          let t;
-          do {
-            t = randType();
-          } while (
-            (c >= 2 && row[c - 1].type === t && row[c - 2].type === t) ||
-            (r >= 2 && grid[r - 1][c].type === t && grid[r - 2][c].type === t)
-          );
-          row.push(makePiece(t, r, c));
-        }
+        for (let c = 0; c < COLS; c++) row.push(makePiece(randType(), r, c));
         grid.push(row);
       }
     } while (!hasMoves());
@@ -106,7 +85,7 @@ export function createBoard(layout) {
   function shuffle() {
     for (let attempt = 0; attempt < 200; attempt++) {
       grid.forEach((row) => row.forEach((p) => { p.type = randType(); }));
-      if (findMatches().size === 0 && hasMoves()) break;
+      if (hasMoves()) break;
     }
     grid.forEach((row) => row.forEach((p) => { p.scale = 0.3; }));
   }
@@ -130,9 +109,8 @@ export function createBoard(layout) {
     }
   }
 
-  // Marks matched pieces as clearing and returns their cells.
-  function markClearing(matches) {
-    const cells = [...matches].map((k) => ({ r: Math.floor(k / COLS), c: k % COLS }));
+  // Marks the chosen cells as clearing and returns them.
+  function markClearing(cells) {
     cells.forEach(({ r, c }) => { grid[r][c].clearing = true; });
     return cells;
   }
@@ -178,7 +156,7 @@ export function createBoard(layout) {
 
   return {
     get grid() { return grid; },
-    cellAt, findMatches, swapCells, hasMoves,
+    cellAt, centerOf, typeAt, areNeighbors, hasMoves,
     build, shuffle, applyGravity,
     markClearing, setClearScale, removeCells, move,
   };

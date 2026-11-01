@@ -1,5 +1,5 @@
 import {
-  COLS, ROWS, CELL, COLORS, SHAPES, PIECE_SHEET,
+  COLS, ROWS, CELL, COLORS, SHAPES, PIECE_SHEET, MIN_CHAIN,
   BAR_W, BAR_H, ENEMY_BAR_Y, PLAYER_BAR_Y,
   PLAYER_MAX_HP, ENEMY_MAX_HP, ATTACK_INTERVAL,
   ENEMY_SHAKE_TIME, ENEMY_LUNGE_TIME, PLAYER_SHAKE_TIME,
@@ -31,10 +31,8 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
     mode: PIECE_SHEET.mode,
   });
 
-  let selectedKey = null;
-  let selectedSince = 0;
-
-  function drawPiece(p, pulse, isSelected) {
+  // `animating` is true for pieces in the current chain and for pieces being cleared.
+  function drawPiece(p, pulse, animating) {
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.scale(p.scale * pulse, p.scale * pulse);
@@ -44,8 +42,8 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
       let frame = PIECE_SHEET.idleFrame;
       if (PIECE_SHEET.animate === 'always') {
         frame = pieceAnim.frameAt(game.time, p.phase);
-      } else if (isSelected) {
-        frame = pieceAnim.frameAt(game.time - selectedSince);
+      } else if (animating && p.animStart != null) {
+        frame = pieceAnim.frameAt(game.time - p.animStart);
       }
       const byRows = PIECE_SHEET.typesAs === 'rows';
       pieceSheet.draw(
@@ -55,21 +53,24 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
         0, 0, CELL - 8, CELL - 8
       );
     } else {
-      // Fallback shape drawing if pieceSheet isn't available
-      const shape = SHAPES[p.type] || { sides: 4, rot: 0 };
-      const R = (CELL - 8) / 2;
-      ctx.fillStyle = COLORS[p.type] || '#ffffff';
-      ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+      const R = CELL * 0.36;
+      const shape = SHAPES[p.type];
+      ctx.fillStyle = COLORS[p.type];
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      for (let i = 0; i < shape.sides; i++) {
-        const a = shape.rot + (i * Math.PI * 2) / shape.sides;
-        const x = Math.cos(a) * R;
-        const y = Math.sin(a) * R;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+      if (shape.sides === 0) {
+        ctx.arc(0, 0, R, 0, Math.PI * 2);
+      } else {
+        for (let i = 0; i < shape.sides; i++) {
+          const a = shape.rot + (i * Math.PI * 2) / shape.sides;
+          const x = Math.cos(a) * R;
+          const y = Math.sin(a) * R;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
       }
-      ctx.closePath();
       ctx.fill();
       ctx.stroke();
     }
@@ -125,9 +126,11 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
   }
 
   function render() {
-    const { state, result, phase, combo, score, time } = game;
-    const { selected } = input;
+    const { state, result, phase, score, time } = game;
     const { notice } = effects;
+    const grid = board.grid;
+    const chain = input.chain;
+    const validChain = chain.length >= MIN_CHAIN;
 
     ctx.fillStyle = '#0b1020';
     ctx.fillRect(0, 0, W, H);
@@ -167,33 +170,57 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
       }
     }
 
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(boardX, boardY, boardW, boardH);
-    ctx.clip();
-    const key = selected ? `${selected.r},${selected.c}` : null;
-    if (key !== selectedKey) {
-      selectedKey = key;
-      selectedSince = time;
-    }
-    const pulse = 1 + Math.sin(time * 8) * 0.05;
-    const grid = board.grid;
+    // Work out which pieces are animating. A piece starts from its first
+    // frame when it joins the chain, and keeps going while it is cleared.
+    const inChain = new Set(chain.map(({ r, c }) => grid[r][c]));
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         const p = grid[r][c];
         if (!p) continue;
-        const isSelected = selected && selected.r === r && selected.c === c;
-        drawPiece(p, isSelected ? 1.08 + (pulse - 1) : 1, !!isSelected);
+        const active = inChain.has(p) || p.clearing;
+        if (active && p.animStart == null) p.animStart = time;
+        if (!active) p.animStart = null;
+      }
+    }
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(boardX, boardY, boardW, boardH);
+    ctx.clip();
+
+    // Chain path, under the pieces
+    if (chain.length > 1) {
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 10;
+      ctx.strokeStyle = validChain ? 'rgba(255, 215, 106, 0.55)' : 'rgba(255, 255, 255, 0.35)';
+      ctx.beginPath();
+      chain.forEach(({ r, c }, i) => {
+        const center = board.centerOf(r, c);
+        if (i === 0) ctx.moveTo(center.x, center.y);
+        else ctx.lineTo(center.x, center.y);
+      });
+      ctx.stroke();
+    }
+
+    const pulse = 1 + Math.sin(time * 8) * 0.05;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const p = grid[r][c];
+        if (!p) continue;
+        const linked = inChain.has(p);
+        drawPiece(p, linked ? 1.08 + (pulse - 1) : 1, linked || p.clearing);
       }
     }
     ctx.restore();
 
-    if (selected && phase === 'idle' && state === 'playing') {
-      roundedRect(boardX + selected.c * CELL + 2, boardY + selected.r * CELL + 2, CELL - 4, CELL - 4, 8);
+    // Outline each linked piece. Gold means the chain is long enough to clear.
+    chain.forEach(({ r, c }) => {
+      roundedRect(boardX + c * CELL + 2, boardY + r * CELL + 2, CELL - 4, CELL - 4, 8);
       ctx.lineWidth = 3;
-      ctx.strokeStyle = '#ffffff';
+      ctx.strokeStyle = validChain ? '#ffd76a' : '#ffffff';
       ctx.stroke();
-    }
+    });
 
     // Player
     const pShake = battle.playerShake > 0
@@ -238,8 +265,8 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
     // HUD
     text(`★ ${lessonPoints} lesson points`, 16, 32, 16, '#ffd76a', 'left', 600);
     text(`Score ${score}`, W - 16, 32, 18, '#ffffff', 'right', 600);
-    if (combo > 1 && (phase === 'clear' || phase === 'fall') && state === 'playing') {
-      text(`Combo x${combo}`, W / 2, 32, 16, '#6ee7ff', 'center', 600);
+    if (state === 'playing' && chain.length > 0) {
+      text(`Chain ${chain.length}`, W / 2, 32, 16, validChain ? '#ffd76a' : '#c8cdd6', 'center', 600);
     }
 
     if (notice.t > 0) {
@@ -254,12 +281,12 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
     if (state === 'ready') {
       ctx.fillStyle = 'rgba(11, 16, 32, 0.7)';
       ctx.fillRect(0, 0, W, H);
-      text('Match three', W / 2, H / 2 - 70, 34, '#ffffff', 'center', 600);
+      text('Link three', W / 2, H / 2 - 70, 34, '#ffffff', 'center', 600);
       text('Tap or click to start', W / 2, H / 2 - 30, 18, '#ffd76a');
-      text('Swap neighbouring pieces to line up three.', W / 2, H / 2 + 6, 15, '#c8cdd6');
-      text('Every match hurts the enemy.', W / 2, H / 2 + 28, 15, '#c8cdd6');
-      text('It fires back every few seconds.', W / 2, H / 2 + 50, 15, '#c8cdd6');
-      text('Tap two pieces, or drag one.', W / 2, H / 2 + 72, 15, '#c8cdd6');
+      text('Drag across touching pieces of the same kind.', W / 2, H / 2 + 6, 15, '#c8cdd6');
+      text(`Link ${MIN_CHAIN} or more, then let go.`, W / 2, H / 2 + 28, 15, '#c8cdd6');
+      text('Every chain hurts the enemy.', W / 2, H / 2 + 50, 15, '#c8cdd6');
+      text('It fires back every few seconds.', W / 2, H / 2 + 72, 15, '#c8cdd6');
       text(`★ ${lessonPoints} lesson points ready`, W / 2, H / 2 + 112, 15, '#6ee7ff');
     } else if (state === 'over') {
       ctx.fillStyle = 'rgba(11, 16, 32, 0.75)';

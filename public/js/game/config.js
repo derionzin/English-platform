@@ -41,7 +41,12 @@ export const ENEMY_SHAKE_TIME = 0.3;
 export const ENEMY_LUNGE_TIME = 0.25;
 export const PLAYER_SHAKE_TIME = 0.35;
 
-// Look
+// Chains
+export const MIN_CHAIN = 3;
+export const ALLOW_DIAGONALS = false;
+export const CHAIN_BONUS = 0.25;
+export const HIT_RADIUS = 0.4;
+
 
 // Piece sprite sheet
 export const PIECE_SHEET = {

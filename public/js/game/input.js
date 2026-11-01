@@ -1,13 +1,17 @@
-import { ROWS, COLS, CELL } from './config.js';
+import { CELL, MIN_CHAIN, HIT_RADIUS } from './config.js';
 
 // Assets comes from assets.js, which is loaded as a normal script.
 
-export function createInput({ canvas, board, game, onStart, onRestart, onSwap }) {
-  let selected = null;
-  let drag = null;
+export function createInput({ canvas, board, game, onStart, onRestart, onChain }) {
+  let chain = [];
+  let dragging = false;
+  let lastPt = null;
 
   canvas.style.touchAction = 'none';
   canvas.style.cursor = 'pointer';
+
+  const sameCell = (a, b) => a.r === b.r && a.c === b.c;
+  const canPlay = () => game.state === 'playing' && game.phase === 'idle';
 
   function toCanvas(e) {
     const rect = canvas.getBoundingClientRect();
@@ -15,6 +19,47 @@ export function createInput({ canvas, board, game, onStart, onRestart, onSwap })
       x: (e.clientX - rect.left) * (canvas.width / rect.width),
       y: (e.clientY - rect.top) * (canvas.height / rect.height),
     };
+  }
+
+  // Only counts when the pointer is near the middle of a piece,
+  // so cutting a corner doesn't link the wrong piece.
+  function cellUnder(pt) {
+    const cell = board.cellAt(pt.x, pt.y);
+    if (!cell) return null;
+    const center = board.centerOf(cell.r, cell.c);
+    return Math.hypot(pt.x - center.x, pt.y - center.y) <= CELL * HIT_RADIUS ? cell : null;
+  }
+
+  function linkSound() {
+    Assets.play('select', { rate: Math.min(1 + (chain.length - 1) * 0.07, 1.8) });
+  }
+
+  function extend(pt) {
+    const cell = cellUnder(pt);
+    if (!cell) return;
+    const last = chain[chain.length - 1];
+    if (sameCell(cell, last)) return;
+
+    // Dragging back onto the previous piece undoes the last link.
+    if (chain.length >= 2 && sameCell(cell, chain[chain.length - 2])) {
+      chain.pop();
+      return;
+    }
+    if (chain.some((c) => sameCell(c, cell))) return;
+    if (!board.areNeighbors(last, cell)) return;
+    if (board.typeAt(cell.r, cell.c) !== board.typeAt(last.r, last.c)) return;
+
+    chain.push(cell);
+    linkSound();
+  }
+
+  function finish() {
+    if (!dragging) return;
+    dragging = false;
+    const done = chain;
+    chain = [];
+    if (done.length >= MIN_CHAIN) onChain(done);
+    else if (done.length > 1) Assets.play('invalid');
   }
 
   canvas.addEventListener('pointerdown', (e) => {
@@ -30,48 +75,42 @@ export function createInput({ canvas, board, game, onStart, onRestart, onSwap })
       onRestart();
       return;
     }
-    if (game.phase !== 'idle') return;
+    if (!canPlay()) return;
 
     const pt = toCanvas(e);
     const cell = board.cellAt(pt.x, pt.y);
-    if (!cell) {
-      selected = null;
-      return;
-    }
-    if (selected && Math.abs(selected.r - cell.r) + Math.abs(selected.c - cell.c) === 1) {
-      onSwap(selected.r, selected.c, cell.r, cell.c);
-      drag = null;
-      return;
-    }
-    selected = cell;
-    Assets.play('select');
-    drag = { x: pt.x, y: pt.y, cell };
+    if (!cell) return;
+    chain = [cell];
+    dragging = true;
+    lastPt = pt;
+    linkSound();
   });
 
   canvas.addEventListener('pointermove', (e) => {
-    if (!drag || game.state !== 'playing' || game.phase !== 'idle') return;
+    if (!dragging || !canPlay()) return;
     const pt = toCanvas(e);
-    const dx = pt.x - drag.x;
-    const dy = pt.y - drag.y;
-    if (Math.hypot(dx, dy) < CELL * 0.45) return;
 
-    const from = drag.cell;
-    let { r, c } = from;
-    if (Math.abs(dx) > Math.abs(dy)) c += dx > 0 ? 1 : -1;
-    else r += dy > 0 ? 1 : -1;
-    drag = null;
-    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return;
-    onSwap(from.r, from.c, r, c);
+    // Follow the pointer in small steps so a fast drag can't skip over a piece.
+    const dist = Math.hypot(pt.x - lastPt.x, pt.y - lastPt.y);
+    const steps = Math.max(1, Math.ceil(dist / (CELL * 0.25)));
+    for (let i = 1; i <= steps; i++) {
+      extend({
+        x: lastPt.x + ((pt.x - lastPt.x) * i) / steps,
+        y: lastPt.y + ((pt.y - lastPt.y) * i) / steps,
+      });
+    }
+    lastPt = pt;
   });
 
-  const endDrag = () => { drag = null; };
-  canvas.addEventListener('pointerup', endDrag);
-  canvas.addEventListener('pointercancel', endDrag);
+  canvas.addEventListener('pointerup', finish);
+  canvas.addEventListener('pointercancel', () => {
+    dragging = false;
+    chain = [];
+  });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
   return {
-    get selected() { return selected; },
-    clearSelection() { selected = null; },
-    reset() { selected = null; drag = null; },
+    get chain() { return chain; },
+    reset() { chain = []; dragging = false; },
   };
 }

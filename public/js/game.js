@@ -1,5 +1,6 @@
 import {
-  ASSETS, CLEAR_TIME, POINTS_PER_PIECE, DAMAGE_PER_PIECE, COLORS, createLayout,
+  ASSETS, CLEAR_TIME, POINTS_PER_PIECE, DAMAGE_PER_PIECE, COLORS,
+  MIN_CHAIN, CHAIN_BONUS, createLayout,
 } from './game/config.js';
 import { createDrawUtils } from './game/draw-utils.js';
 import { drawLoading } from './game/loading.js';
@@ -67,13 +68,11 @@ function startGame(entry) {
     state: 'ready', // ready | playing | over
     result: null, // 'win' | 'lose'
     overAt: 0,
-    phase: 'fall', // idle | swap | swapback | clear | fall
-    combo: 0,
+    phase: 'fall', // idle | clear | fall
     score: 0,
     time: 0,
   };
 
-  let swapInfo = null;
   let clearing = [];
   let clearTimer = 0;
 
@@ -85,7 +84,7 @@ function startGame(entry) {
     canvas, board, game,
     onStart: startPlaying,
     onRestart: tryRestart,
-    onSwap: trySwap,
+    onChain: startChain,
   });
   const renderer = createRenderer({
     ctx, W, H, layout, utils, effects, board, battle, input, game, lessonPoints,
@@ -105,12 +104,10 @@ function startGame(entry) {
 
   function restart() {
     game.score = 0;
-    game.combo = 0;
     game.result = null;
     battle.reset();
     effects.clear();
     clearing = [];
-    swapInfo = null;
     input.reset();
     board.build();
     game.phase = 'fall';
@@ -136,23 +133,19 @@ function startGame(entry) {
 
   /* ---------- Turn flow ---------- */
 
-  function trySwap(r1, c1, r2, c2) {
-    if (game.phase !== 'idle') return;
-    swapInfo = { r1, c1, r2, c2 };
-    board.swapCells(r1, c1, r2, c2);
-    input.clearSelection();
-    game.phase = 'swap';
-    Assets.play('swap');
-  }
-
-  function startClear(matches) {
-    clearing = board.markClearing(matches);
+  // The player let go of a chain that is long enough.
+  function startChain(cells) {
+    if (game.state !== 'playing' || game.phase !== 'idle') return;
+    clearing = board.markClearing(cells);
     clearTimer = CLEAR_TIME;
     game.phase = 'clear';
   }
 
   function finishClear() {
     const removed = board.removeCells(clearing);
+    const n = removed.length;
+    const mult = 1 + (n - MIN_CHAIN) * CHAIN_BONUS;
+
     let sx = 0;
     let sy = 0;
     removed.forEach((p) => {
@@ -161,16 +154,16 @@ function startGame(entry) {
       effects.burst(p.x, p.y, COLORS[p.type], 8);
     });
 
-    const gain = removed.length * POINTS_PER_PIECE * game.combo;
+    const gain = Math.round(n * POINTS_PER_PIECE * mult);
     game.score += gain;
-    Assets.play('match', { rate: Math.min(1 + (game.combo - 1) * 0.08, 1.6) });
+    Assets.play('match', { rate: Math.min(1 + (n - MIN_CHAIN) * 0.06, 1.6) });
     effects.popup({
-      x: sx / removed.length,
-      y: sy / removed.length,
-      text: game.combo > 1 ? `+${gain}  x${game.combo}` : `+${gain}`,
+      x: sx / n,
+      y: sy / n,
+      text: mult > 1 ? `+${gain}  x${+mult.toFixed(2)}` : `+${gain}`,
     });
 
-    battle.damageEnemy(removed.length * DAMAGE_PER_PIECE * game.combo);
+    battle.damageEnemy(Math.round(n * DAMAGE_PER_PIECE * mult));
 
     clearing = [];
     board.applyGravity();
@@ -180,7 +173,7 @@ function startGame(entry) {
 
   function reshuffle() {
     board.shuffle();
-    effects.showNotice('No moves left. Reshuffled!');
+    effects.showNotice('No chains left. Reshuffled!');
     Assets.play('shuffle');
   }
 
@@ -195,33 +188,13 @@ function startGame(entry) {
     if (game.state === 'playing') battle.update(dt);
     if (game.state === 'over') return;
 
-    if (game.phase === 'swap' && !moving) {
-      const matches = board.findMatches();
-      if (matches.size) {
-        game.combo = 1;
-        startClear(matches);
-      } else {
-        const { r1, c1, r2, c2 } = swapInfo;
-        board.swapCells(r1, c1, r2, c2);
-        game.phase = 'swapback';
-        Assets.play('invalid');
-      }
-    } else if (game.phase === 'swapback' && !moving) {
-      game.phase = 'idle';
-    } else if (game.phase === 'clear') {
+    if (game.phase === 'clear') {
       clearTimer -= dt;
       board.setClearScale(clearing, Math.max(0, clearTimer / CLEAR_TIME));
       if (clearTimer <= 0) finishClear();
     } else if (game.phase === 'fall' && !moving) {
-      const matches = board.findMatches();
-      if (matches.size) {
-        game.combo++;
-        startClear(matches);
-      } else {
-        game.combo = 0;
-        if (!board.hasMoves()) reshuffle();
-        game.phase = 'idle';
-      }
+      if (!board.hasMoves()) reshuffle();
+      game.phase = 'idle';
     }
   }
 
