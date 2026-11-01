@@ -5,8 +5,17 @@ import {
 
 // Assets comes from assets.js, which is loaded as a normal script.
 
-export function createBattle({ layout, effects, onPlayerDown }) {
+export function createBattle({ layout, effects, onPlayerDown, onEnemyDown }) {
   const { enemyBox, playerBox } = layout;
+
+  function makeShot(kind, sx, sy, tx, ty, extra) {
+    return {
+      kind, sx, sy, tx, ty, x: sx, y: sy, t: 0,
+      dur: Math.hypot(tx - sx, ty - sy) / SHOT_SPEED,
+      done: false,
+      ...extra,
+    };
+  }
 
   const battle = {
     playerHp: PLAYER_MAX_HP,
@@ -75,7 +84,6 @@ export function createBattle({ layout, effects, onPlayerDown }) {
       Assets.play('shield');
     },
 
-
     addDelay(seconds) {
       const before = battle.attackTimer;
       battle.attackTimer = Math.min(ATTACK_INTERVAL, before + seconds);
@@ -110,18 +118,40 @@ export function createBattle({ layout, effects, onPlayerDown }) {
       return multiplier;
     },
 
+    // The enemy shoots at the player.
     fireShot() {
-      const sx = enemyBox.x;
-      const sy = enemyBox.y + enemyBox.h / 2;
-      const tx = playerBox.x;
-      const ty = playerBox.y;
-      battle.shots.push({
-        sx, sy, tx, ty, x: sx, y: sy, t: 0,
-        dur: Math.hypot(tx - sx, ty - sy) / SHOT_SPEED,
-        done: false,
-      });
+      battle.shots.push(
+        makeShot(
+          'enemy',
+          enemyBox.x, enemyBox.y + enemyBox.h / 2,
+          playerBox.x, playerBox.y,
+          { color: '#ff6b6b', core: '#ffffff', trail: ['#ff8a5c', '#ffd76a'] }
+        )
+      );
       battle.enemyLunge = ENEMY_LUNGE_TIME;
       Assets.play('shoot');
+    },
+
+    // The fire power: the player shoots at the enemy.
+    fireBlast(damage) {
+      battle.shots.push(
+        makeShot(
+          'player',
+          playerBox.x, playerBox.y - playerBox.h / 2,
+          enemyBox.x, enemyBox.y + enemyBox.h / 2,
+          { damage, color: '#ff922b', core: '#fff3bf', trail: ['#ffa94d', '#ffe066'] }
+        )
+      );
+      effects.burst(playerBox.x, playerBox.y - playerBox.h / 2, '#ffa94d', 12);
+      Assets.play('blast');
+    },
+
+    hitEnemy(damage) {
+      battle.damageEnemy(damage);
+      effects.burst(enemyBox.x, enemyBox.y, '#ff922b', 24);
+      effects.burst(enemyBox.x, enemyBox.y, '#ffe066', 10);
+      Assets.play('blastHit');
+      if (battle.enemyHp <= 0) onEnemyDown();
     },
 
     hitPlayer() {
@@ -153,7 +183,7 @@ export function createBattle({ layout, effects, onPlayerDown }) {
       if (battle.playerHp <= 0) onPlayerDown();
     },
 
-    // Enemy attacks. Only runs while the game is being played.
+    // Enemy attacks and shots in flight. Only runs while the game is being played.
     update(dt) {
       battle.attackTimer -= dt;
       if (battle.attackTimer <= 0) {
@@ -166,11 +196,12 @@ export function createBattle({ layout, effects, onPlayerDown }) {
         const k = Math.min(1, s.t / s.dur);
         s.x = s.sx + (s.tx - s.sx) * k;
         s.y = s.sy + (s.ty - s.sy) * k;
-        effects.spark(s.x, s.y, '#ff8a5c');
-        effects.spark(s.x, s.y, '#ffd76a');
+        effects.spark(s.x, s.y, s.trail[0]);
+        effects.spark(s.x, s.y, s.trail[1]);
         if (k >= 1 && !s.done) {
           s.done = true;
-          battle.hitPlayer();
+          if (s.kind === 'player') battle.hitEnemy(s.damage);
+          else battle.hitPlayer();
         }
       });
       battle.shots = battle.shots.filter((s) => !s.done);

@@ -1,6 +1,7 @@
 import {
   ASSETS, CLEAR_TIME, POINTS_PER_PIECE, DAMAGE_PER_PIECE, HEAL_PER_PIECE, DEFENSE_PER_PIECE,
-  DELAY_PER_PIECE, BOOST_PER_PIECE,
+  DELAY_PER_PIECE, BOOST_PER_PIECE, FIRE_POWER_DAMAGE, WATER_POWER_HEAL,
+  PLAYER_MAX_HP, DEFENSE_MAX, BOOST_MAX,
   COLORS, ELEMENTS, MIN_CHAIN, CHAIN_BONUS, createLayout,
 } from './game/config.js';
 import { createDrawUtils } from './game/draw-utils.js';
@@ -82,7 +83,11 @@ function startGame(entry) {
   const utils = createDrawUtils(ctx);
   const effects = createEffects(W, H);
   const board = createBoard(layout);
-  const battle = createBattle({ layout, effects, onPlayerDown: () => endGame('lose') });
+  const battle = createBattle({
+    layout, effects,
+    onPlayerDown: () => endGame('lose'),
+    onEnemyDown: () => endGame('win'),
+  });
   const powers = createPowers({ layout, effects });
   const input = createInput({
     canvas, board, powers, game,
@@ -123,6 +128,7 @@ function startGame(entry) {
   }
 
   function endGame(outcome) {
+    if (game.state === 'over') return;
     game.state = 'over';
     game.result = outcome;
     game.overAt = performance.now();
@@ -150,23 +156,70 @@ function startGame(entry) {
   }
 
   // The player tapped a power button.
+  // The player tapped a power button.
   function usePower(type) {
     if (game.state !== 'playing' || game.phase !== 'idle') return;
     if (!powers.isReady(type)) return;
     const el = ELEMENTS[type];
+    const { playerBox } = layout;
+
+    const spend = () => {
+      powers.consume(type);
+      Assets.play('power');
+    };
+    const showBoost = (boost) => {
+      if (boost > 1) {
+        effects.popup({
+          x: playerBox.x, y: playerBox.y - 62,
+          text: `Boost x${boost.toFixed(2)}`, color: '#b197fc',
+        });
+      }
+    };
 
     if (el.power === 'clearType') {
+      // Wind: removes every piece of this kind from the board.
       const cells = board.cellsOfType(type);
       if (!cells.length) {
         effects.showNotice(`No ${el.name.toLowerCase()} pieces on the board`);
         return;
       }
-      powers.consume(type);
-      Assets.play('power');
+      spend();
       clearing = board.markClearing(cells);
       clearKind = 'power';
       clearTimer = CLEAR_TIME;
       game.phase = 'clear';
+    } else if (el.power === 'blast') {
+      // Fire: a shot flies from the player to the enemy.
+      const boost = battle.consumeBoost();
+      spend();
+      showBoost(boost);
+      battle.fireBlast(Math.round(FIRE_POWER_DAMAGE * boost));
+    } else if (el.power === 'restore') {
+      // Water: a big heal.
+      if (battle.playerHp >= PLAYER_MAX_HP) {
+        effects.showNotice('Already at full health');
+        return;
+      }
+      const boost = battle.consumeBoost();
+      spend();
+      showBoost(boost);
+      battle.healPlayer(Math.round(WATER_POWER_HEAL * boost));
+    } else if (el.power === 'fortify') {
+      // Earth: fills the shield.
+      if (battle.defense >= DEFENSE_MAX) {
+        effects.showNotice('Shield is already full');
+        return;
+      }
+      spend();
+      battle.addDefense(DEFENSE_MAX);
+    } else if (el.power === 'overcharge') {
+      // Night: maxes out the boost.
+      if (battle.boost >= BOOST_MAX) {
+        effects.showNotice('Boost is already maxed');
+        return;
+      }
+      spend();
+      battle.addBoost(BOOST_MAX);
     } else {
       // Not defined yet. The meter stays full until the power exists.
       effects.showNotice(`${el.name} power isn't set up yet`);

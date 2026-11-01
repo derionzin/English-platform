@@ -23,6 +23,8 @@ export const ASSETS = {
     powerReady: 'sound/powerReady.mp3',
     delay: 'sound/delay.mp3',
     boost: 'sound/boost.mp3',
+    blast: null,
+    blastHit: null,
   },
 };
 
@@ -76,11 +78,11 @@ export const PIECE_SHEET = {
 };
 
 export const ELEMENTS = [
-  { id: 'fire',  name: 'Fire',  color: '#ff6b6b', shape: { sides: 3, rot: -Math.PI / 2 }, effect: 'damage',  power: null,        meterMax: 10, meterPerPiece: 1 },
-  { id: 'water', name: 'Water', color: '#4dabf7', shape: { sides: 0, rot: 0 },            effect: 'heal',    power: null,        meterMax: 10, meterPerPiece: 1 },
-  { id: 'wind',  name: 'Wind',  color: '#63e6be', shape: { sides: 4, rot: 0 },            effect: 'delay',   power: 'clearType', meterMax: 10, meterPerPiece: 1 },
-  { id: 'earth', name: 'Earth', color: '#d9a441', shape: { sides: 4, rot: Math.PI / 4 },  effect: 'defense', power: null,        meterMax: 10, meterPerPiece: 1 },
-  { id: 'night', name: 'Night', color: '#9775fa', shape: { sides: 6, rot: 0 },            effect: 'boost',   power: null,        meterMax: 10, meterPerPiece: 1 },
+  { id: 'fire',  name: 'Fire',  color: '#ff6b6b', shape: { sides: 3, rot: -Math.PI / 2 }, effect: 'damage',  power: 'blast',       meterMax: 10, meterPerPiece: 1 },
+  { id: 'water', name: 'Water', color: '#4dabf7', shape: { sides: 0, rot: 0 },            effect: 'heal',    power: 'restore',     meterMax: 10, meterPerPiece: 1 },
+  { id: 'wind',  name: 'Wind',  color: '#63e6be', shape: { sides: 4, rot: 0 },            effect: 'delay',   power: 'clearType',   meterMax: 10, meterPerPiece: 1 },
+  { id: 'earth', name: 'Earth', color: '#d9a441', shape: { sides: 4, rot: Math.PI / 4 },  effect: 'defense', power: 'fortify',     meterMax: 10, meterPerPiece: 1 },
+  { id: 'night', name: 'Night', color: '#9775fa', shape: { sides: 6, rot: 0 },            effect: 'boost',   power: 'overcharge',  meterMax: 10, meterPerPiece: 1 },
 ];
 export const COLORS = ELEMENTS.map((e) => e.color);
 export const SHAPES = ELEMENTS.map((e) => e.shape);
@@ -91,6 +93,8 @@ export const PLAYER_BAR_Y = 546;
 export const DELAY_PER_PIECE = 0.5;  // seconds added to the enemy attack timer (wind)
 export const BOOST_PER_PIECE = 0.15; // added to the next-effect multiplier (night)
 export const BOOST_MAX = 1;          // 1 means the multiplier tops out at x2
+export const FIRE_POWER_DAMAGE = 30;
+export const WATER_POWER_HEAL = 40; 
 
 // Power button row, below the player
 export const POWER = { w: 84, h: 54, gap: 8, y: 570 };

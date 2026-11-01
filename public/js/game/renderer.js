@@ -360,12 +360,13 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
     drawPowerButtons();
 
     // Enemy shots
+    // Shots in flight
     battle.shots.forEach((s) => {
-      ctx.fillStyle = '#ff6b6b';
+      ctx.fillStyle = s.color;
       ctx.beginPath();
       ctx.arc(s.x, s.y, 9, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = s.core;
       ctx.beginPath();
       ctx.arc(s.x, s.y, 4, 0, Math.PI * 2);
       ctx.fill();
