@@ -27,7 +27,7 @@ export const ASSETS = {
 // Board
 export const COLS = 7;
 export const ROWS = 7;
-export const CELL = 54;
+export const CELL = 48;
 export const TYPES = 5;
 
 // Timing and scoring
@@ -85,11 +85,10 @@ export const SHAPES = ELEMENTS.map((e) => e.shape);
 export const BAR_W = 220;
 export const BAR_H = 12;
 export const ENEMY_BAR_Y = 42;
-export const PLAYER_BAR_Y = 624;
+export const PLAYER_BAR_Y = 546;
 
-// Positions on the canvas (W is the canvas width)
 // Power button row, below the player
-export const POWER = { w: 84, h: 56, gap: 8, y: 654 };
+export const POWER = { w: 84, h: 54, gap: 8, y: 570 };
 
 // Positions on the canvas (W is the canvas width)
 export function createLayout(W) {
@@ -99,11 +98,11 @@ export function createLayout(W) {
   const rowX = (W - rowW) / 2;
   return {
     boardX: (W - boardW) / 2,
-    boardY: 176,
+    boardY: 152,
     boardW,
     boardH,
-    enemyBox: { x: W / 2, y: 112, w: 170, h: 100 },
-    playerBox: { x: W / 2, y: 592, w: 120, h: 50 },
+    enemyBox: { x: W / 2, y: 102, w: 170, h: 76 },
+    playerBox: { x: W / 2, y: 516, w: 120, h: 40 },
     powerButtons: Array.from({ length: TYPES }, (_, i) => ({
       x: rowX + i * (POWER.w + POWER.gap),
       y: POWER.y,
