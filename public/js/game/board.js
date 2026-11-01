@@ -115,6 +115,19 @@ export function createBoard(layout) {
     return cells;
   }
 
+  // Every piece of one type that is on the board.
+  function cellsOfType(type) {
+    const cells = [];
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const p = grid[r][c];
+        if (p && p.type === type && !p.clearing) cells.push({ r, c });
+      }
+    }
+    return cells;
+  }
+
+
   function setClearScale(cells, s) {
     cells.forEach(({ r, c }) => { grid[r][c].scale = s; });
   }
@@ -156,7 +169,7 @@ export function createBoard(layout) {
 
   return {
     get grid() { return grid; },
-    cellAt, centerOf, typeAt, areNeighbors, hasMoves,
+    cellAt, centerOf, typeAt, areNeighbors, hasMoves, cellsOfType,
     build, shuffle, applyGravity,
     markClearing, setClearScale, removeCells, move,
   };

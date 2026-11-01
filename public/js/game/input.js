@@ -2,7 +2,7 @@ import { CELL, MIN_CHAIN, HIT_RADIUS } from './config.js';
 
 // Assets comes from assets.js, which is loaded as a normal script.
 
-export function createInput({ canvas, board, game, onStart, onRestart, onChain }) {
+export function createInput({ canvas, board, powers, game, onStart, onRestart, onChain, onPower }) {
   let chain = [];
   let dragging = false;
   let lastPt = null;
@@ -78,6 +78,13 @@ export function createInput({ canvas, board, game, onStart, onRestart, onChain }
     if (!canPlay()) return;
 
     const pt = toCanvas(e);
+
+    const button = powers.buttonAt(pt.x, pt.y);
+    if (button !== -1) {
+      onPower(button);
+      return;
+    }
+
     const cell = board.cellAt(pt.x, pt.y);
     if (!cell) return;
     chain = [cell];

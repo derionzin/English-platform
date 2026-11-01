@@ -1,12 +1,13 @@
 import {
-  ASSETS, CLEAR_TIME, POINTS_PER_PIECE, DAMAGE_PER_PIECE, COLORS,
-  MIN_CHAIN, CHAIN_BONUS, createLayout,
+  ASSETS, CLEAR_TIME, POINTS_PER_PIECE, DAMAGE_PER_PIECE, HEAL_PER_PIECE, DEFENSE_PER_PIECE,
+  COLORS, ELEMENTS, MIN_CHAIN, CHAIN_BONUS, createLayout,
 } from './game/config.js';
 import { createDrawUtils } from './game/draw-utils.js';
 import { drawLoading } from './game/loading.js';
 import { createEffects } from './game/effects.js';
 import { createBoard } from './game/board.js';
 import { createBattle } from './game/battle.js';
+import { createPowers } from './game/powers.js';
 import { createInput } from './game/input.js';
 import { createRenderer } from './game/renderer.js';
 
@@ -74,20 +75,23 @@ function startGame(entry) {
   };
 
   let clearing = [];
+  let clearKind = 'chain'; // 'chain' (player linked pieces) or 'power' (a power button)
   let clearTimer = 0;
 
   const utils = createDrawUtils(ctx);
   const effects = createEffects(W, H);
   const board = createBoard(layout);
   const battle = createBattle({ layout, effects, onPlayerDown: () => endGame('lose') });
+  const powers = createPowers({ layout, effects });
   const input = createInput({
-    canvas, board, game,
+    canvas, board, powers, game,
     onStart: startPlaying,
     onRestart: tryRestart,
     onChain: startChain,
+    onPower: usePower,
   });
   const renderer = createRenderer({
-    ctx, W, H, layout, utils, effects, board, battle, input, game, lessonPoints,
+    ctx, W, H, layout, utils, effects, board, battle, powers, input, game, lessonPoints,
   });
 
   /* ---------- Game states ---------- */
@@ -106,8 +110,10 @@ function startGame(entry) {
     game.score = 0;
     game.result = null;
     battle.reset();
+    powers.reset();
     effects.clear();
     clearing = [];
+    clearKind = 'chain';
     input.reset();
     board.build();
     game.phase = 'fall';
@@ -137,24 +143,49 @@ function startGame(entry) {
   function startChain(cells) {
     if (game.state !== 'playing' || game.phase !== 'idle') return;
     clearing = board.markClearing(cells);
+    clearKind = 'chain';
     clearTimer = CLEAR_TIME;
     game.phase = 'clear';
   }
 
-  function finishClear() {
-    const removed = board.removeCells(clearing);
+  // The player tapped a power button.
+  function usePower(type) {
+    if (game.state !== 'playing' || game.phase !== 'idle') return;
+    if (!powers.isReady(type)) return;
+    const el = ELEMENTS[type];
+
+    if (el.power === 'clearType') {
+      const cells = board.cellsOfType(type);
+      if (!cells.length) {
+        effects.showNotice(`No ${el.name.toLowerCase()} pieces on the board`);
+        return;
+      }
+      powers.consume(type);
+      Assets.play('power');
+      clearing = board.markClearing(cells);
+      clearKind = 'power';
+      clearTimer = CLEAR_TIME;
+      game.phase = 'clear';
+    } else {
+      // Not defined yet. The meter stays full until the power exists.
+      effects.showNotice(`${el.name} power isn't set up yet`);
+    }
+  }
+
+  // Score, element effect and meter for a chain the player linked.
+  function applyChain(type, removed) {
     const n = removed.length;
     const mult = 1 + (n - MIN_CHAIN) * CHAIN_BONUS;
+    const amount = (perPiece) => Math.round(n * perPiece * mult);
 
     let sx = 0;
     let sy = 0;
     removed.forEach((p) => {
       sx += p.x;
       sy += p.y;
-      effects.burst(p.x, p.y, COLORS[p.type], 8);
     });
 
-    const gain = Math.round(n * POINTS_PER_PIECE * mult);
+    const gain = amount(POINTS_PER_PIECE);
     game.score += gain;
     Assets.play('match', { rate: Math.min(1 + (n - MIN_CHAIN) * 0.06, 1.6) });
     effects.popup({
@@ -163,7 +194,20 @@ function startGame(entry) {
       text: mult > 1 ? `+${gain}  x${+mult.toFixed(2)}` : `+${gain}`,
     });
 
-    battle.damageEnemy(Math.round(n * DAMAGE_PER_PIECE * mult));
+    const el = ELEMENTS[type];
+    if (el.effect === 'damage') battle.damageEnemy(amount(DAMAGE_PER_PIECE));
+    else if (el.effect === 'heal') battle.healPlayer(amount(HEAL_PER_PIECE));
+    else if (el.effect === 'defense') battle.addDefense(amount(DEFENSE_PER_PIECE));
+
+    powers.fill(type, n);
+  }
+
+  function finishClear() {
+    const removed = board.removeCells(clearing);
+    const type = removed[0].type;
+
+    removed.forEach((p) => effects.burst(p.x, p.y, COLORS[p.type], 8));
+    if (clearKind === 'chain') applyChain(type, removed);
 
     clearing = [];
     board.applyGravity();
@@ -182,6 +226,7 @@ function startGame(entry) {
   function update(dt) {
     game.time += dt;
     effects.update(dt);
+    powers.update(dt);
     battle.animate(dt);
     const moving = board.move(dt);
 

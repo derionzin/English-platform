@@ -1,6 +1,6 @@
 import {
   PLAYER_MAX_HP, ENEMY_MAX_HP, ENEMY_DAMAGE, ATTACK_INTERVAL, SHOT_SPEED,
-  ENEMY_SHAKE_TIME, ENEMY_LUNGE_TIME, PLAYER_SHAKE_TIME,
+  ENEMY_SHAKE_TIME, ENEMY_LUNGE_TIME, PLAYER_SHAKE_TIME, DEFENSE_MAX,
 } from './config.js';
 
 // Assets comes from assets.js, which is loaded as a normal script.
@@ -13,6 +13,7 @@ export function createBattle({ layout, effects, onPlayerDown }) {
     enemyHp: ENEMY_MAX_HP,
     playerTrail: PLAYER_MAX_HP,
     enemyTrail: ENEMY_MAX_HP,
+    defense: 0,
     attackTimer: ATTACK_INTERVAL,
     shots: [],
     enemyShake: 0,
@@ -24,6 +25,7 @@ export function createBattle({ layout, effects, onPlayerDown }) {
       battle.enemyHp = ENEMY_MAX_HP;
       battle.playerTrail = PLAYER_MAX_HP;
       battle.enemyTrail = ENEMY_MAX_HP;
+      battle.defense = 0;
       battle.attackTimer = ATTACK_INTERVAL;
       battle.shots = [];
       battle.enemyShake = 0;
@@ -45,6 +47,32 @@ export function createBattle({ layout, effects, onPlayerDown }) {
       effects.popup({ x: enemyBox.x, y: enemyBox.y, text: `-${amount}`, color: '#ff6b6b' });
     },
 
+    healPlayer(amount) {
+      const healed = Math.min(amount, PLAYER_MAX_HP - battle.playerHp);
+      battle.playerHp += healed;
+      if (healed > 0) {
+        effects.burst(playerBox.x, playerBox.y, '#51cf66', 16);
+        effects.popup({ x: playerBox.x, y: playerBox.y - 36, text: `+${healed}`, color: '#51cf66' });
+      } else {
+        effects.popup({ x: playerBox.x, y: playerBox.y - 36, text: 'Full health', color: '#51cf66' });
+      }
+      Assets.play('heal');
+    },
+
+    addDefense(amount) {
+      const before = battle.defense;
+      battle.defense = Math.min(DEFENSE_MAX, before + amount);
+      const gained = battle.defense - before;
+      effects.burst(playerBox.x, playerBox.y, '#74c0fc', 14);
+      effects.popup({
+        x: playerBox.x,
+        y: playerBox.y - 36,
+        text: gained > 0 ? `+${gained} shield` : 'Shield full',
+        color: '#74c0fc',
+      });
+      Assets.play('shield');
+    },
+
     fireShot() {
       const sx = enemyBox.x;
       const sy = enemyBox.y + enemyBox.h / 2;
@@ -62,12 +90,29 @@ export function createBattle({ layout, effects, onPlayerDown }) {
     hitPlayer() {
       const tx = playerBox.x;
       const ty = playerBox.y;
-      battle.playerHp = Math.max(0, battle.playerHp - ENEMY_DAMAGE);
-      battle.playerShake = PLAYER_SHAKE_TIME;
-      effects.burst(tx, ty, '#ff6b6b', 20);
-      effects.burst(tx, ty, '#ffd76a', 8);
-      effects.popup({ x: tx, y: ty - 36, text: `-${ENEMY_DAMAGE}`, color: '#ff6b6b' });
-      Assets.play('hurt');
+
+      // The shield takes its share of this hit and is used up.
+      const blocked = Math.min(battle.defense, ENEMY_DAMAGE);
+      const damage = ENEMY_DAMAGE - blocked;
+      battle.defense = 0;
+      battle.playerHp = Math.max(0, battle.playerHp - damage);
+
+      if (damage > 0) {
+        battle.playerShake = PLAYER_SHAKE_TIME;
+        effects.burst(tx, ty, '#ff6b6b', 20);
+        effects.burst(tx, ty, '#ffd76a', 8);
+        effects.popup({ x: tx, y: ty - 36, text: `-${damage}`, color: '#ff6b6b' });
+      }
+      if (blocked > 0) {
+        effects.burst(tx, ty, '#74c0fc', 14);
+        effects.popup({
+          x: tx,
+          y: ty - (damage > 0 ? 62 : 36),
+          text: damage > 0 ? `${blocked} blocked` : 'Blocked!',
+          color: '#74c0fc',
+        });
+      }
+      Assets.play(damage > 0 ? 'hurt' : 'block');
       if (battle.playerHp <= 0) onPlayerDown();
     },
 

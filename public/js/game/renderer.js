@@ -1,5 +1,5 @@
 import {
-  COLS, ROWS, CELL, COLORS, SHAPES, PIECE_SHEET, MIN_CHAIN,
+  COLS, ROWS, CELL, COLORS, SHAPES, PIECE_SHEET, MIN_CHAIN, ELEMENTS,
   BAR_W, BAR_H, ENEMY_BAR_Y, PLAYER_BAR_Y,
   PLAYER_MAX_HP, ENEMY_MAX_HP, ATTACK_INTERVAL,
   ENEMY_SHAKE_TIME, ENEMY_LUNGE_TIME, PLAYER_SHAKE_TIME,
@@ -8,7 +8,7 @@ import { createSpriteSheet, createAnimator } from './animation.js';
 
 // Assets comes from assets.js, which is loaded as a normal script.
 
-export function createRenderer({ ctx, W, H, layout, utils, effects, board, battle, input, game, lessonPoints }) {
+export function createRenderer({ ctx, W, H, layout, utils, effects, board, battle, powers, input, game, lessonPoints }) {
   const { roundedRect, text, ready, drawFitted } = utils;
   const { boardX, boardY, boardW, boardH, enemyBox, playerBox } = layout;
 
@@ -32,6 +32,29 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
   });
 
   // `animating` is true for pieces in the current chain and for pieces being cleared.
+  function drawShape(type, R) {
+    const shape = SHAPES[type];
+    ctx.fillStyle = COLORS[type];
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    if (shape.sides === 0) {
+      ctx.arc(0, 0, R, 0, Math.PI * 2);
+    } else {
+      for (let i = 0; i < shape.sides; i++) {
+        const a = shape.rot + (i * Math.PI * 2) / shape.sides;
+        const x = Math.cos(a) * R;
+        const y = Math.sin(a) * R;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+    }
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  // `animating` is true for pieces in the current chain and for pieces being cleared.
   function drawPiece(p, pulse, animating) {
     ctx.save();
     ctx.translate(p.x, p.y);
@@ -53,26 +76,21 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
         0, 0, CELL - 8, CELL - 8
       );
     } else {
-      const R = CELL * 0.36;
-      const shape = SHAPES[p.type];
-      ctx.fillStyle = COLORS[p.type];
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      if (shape.sides === 0) {
-        ctx.arc(0, 0, R, 0, Math.PI * 2);
-      } else {
-        for (let i = 0; i < shape.sides; i++) {
-          const a = shape.rot + (i * Math.PI * 2) / shape.sides;
-          const x = Math.cos(a) * R;
-          const y = Math.sin(a) * R;
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.closePath();
-      }
-      ctx.fill();
-      ctx.stroke();
+      drawShape(p.type, CELL * 0.36);
+    }
+    ctx.restore();
+  }
+
+  // A small piece image, used on the power buttons.
+  function drawIcon(type, cx, cy, size, animated) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    if (pieceSheet) {
+      const frame = animated ? pieceAnim.frameAt(game.time) : PIECE_SHEET.idleFrame;
+      const byRows = PIECE_SHEET.typesAs === 'rows';
+      pieceSheet.draw(ctx, byRows ? frame : type, byRows ? type : frame, 0, 0, size, size);
+    } else {
+      drawShape(type, size * 0.4);
     }
     ctx.restore();
   }
@@ -124,6 +142,52 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
 
     text(`${Math.ceil(hp)}/${max}`, x + BAR_W + 10, y + BAR_H - 1, 12, '#c8cdd6', 'left');
   }
+
+  function drawPowerButtons() {
+    const canUse = game.state === 'playing' && game.phase === 'idle';
+
+    layout.powerButtons.forEach((b, i) => {
+      const el = ELEMENTS[i];
+      const full = powers.isReady(i);
+      const fraction = Math.min(1, powers.meters[i] / el.meterMax);
+      const cx = b.x + b.w / 2;
+      const glow = full && canUse ? 0.5 + Math.sin(game.time * 6) * 0.5 : 0;
+
+      roundedRect(b.x, b.y, b.w, b.h, 10);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+      ctx.fill();
+
+      // The meter fills the button from the bottom.
+      ctx.save();
+      roundedRect(b.x, b.y, b.w, b.h, 10);
+      ctx.clip();
+      ctx.globalAlpha = full ? 0.4 : 0.28;
+      ctx.fillStyle = el.color;
+      ctx.fillRect(b.x, b.y + b.h * (1 - fraction), b.w, b.h * fraction);
+      if (powers.flash[i] > 0) {
+        ctx.globalAlpha = (powers.flash[i] / powers.FLASH_TIME) * 0.35;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+      }
+      ctx.restore();
+
+      roundedRect(b.x, b.y, b.w, b.h, 10);
+      ctx.lineWidth = full ? 2 + glow : 1.5;
+      ctx.strokeStyle = full ? '#ffd76a' : el.color;
+      ctx.globalAlpha = full ? 1 : 0.55;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      drawIcon(i, cx, b.y + 20, 28, full);
+
+      if (full) {
+        text('READY', cx, b.y + b.h - 8, 12, '#ffd76a', 'center', 700);
+      } else {
+        text(`${el.name} ${Math.floor(powers.meters[i])}/${el.meterMax}`, cx, b.y + b.h - 8, 12, '#c8cdd6');
+      }
+    });
+  }
+  
 
   function render() {
     const { state, result, phase, score, time } = game;
@@ -247,6 +311,31 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
       PLAYER_MAX_HP, hpColor(battle.playerHp / PLAYER_MAX_HP)
     );
 
+            // Shield from earth pieces
+    if (battle.defense > 0) {
+      if (result !== 'lose') {
+        ctx.save();
+        ctx.globalAlpha = 0.5 + Math.sin(time * 4) * 0.15;
+        ctx.strokeStyle = '#74c0fc';
+        ctx.lineWidth = 3;
+        roundedRect(
+          playerBox.x - playerBox.w / 2 - 6,
+          playerBox.y - playerBox.h / 2 - 6,
+          playerBox.w + 12,
+          playerBox.h + 12,
+          16
+        );
+        ctx.stroke();
+        ctx.restore();
+      }
+      text(`Shield ${battle.defense}`, playerBox.x - BAR_W / 2 - 10, PLAYER_BAR_Y + BAR_H - 1, 13, '#74c0fc', 'right', 600);
+    }
+
+
+
+
+    drawPowerButtons();
+
     // Enemy shots
     battle.shots.forEach((s) => {
       ctx.fillStyle = '#ff6b6b';
@@ -266,7 +355,8 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
     text(`★ ${lessonPoints} lesson points`, 16, 32, 16, '#ffd76a', 'left', 600);
     text(`Score ${score}`, W - 16, 32, 18, '#ffffff', 'right', 600);
     if (state === 'playing' && chain.length > 0) {
-      text(`Chain ${chain.length}`, W / 2, 32, 16, validChain ? '#ffd76a' : '#c8cdd6', 'center', 600);
+      const el = ELEMENTS[board.typeAt(chain[0].r, chain[0].c)];
+      text(`${el.name} chain ${chain.length}`, W / 2, 32, 16, validChain ? '#ffd76a' : '#c8cdd6', 'center', 600);
     }
 
     if (notice.t > 0) {
@@ -281,12 +371,13 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
     if (state === 'ready') {
       ctx.fillStyle = 'rgba(11, 16, 32, 0.7)';
       ctx.fillRect(0, 0, W, H);
-      text('Link three', W / 2, H / 2 - 70, 34, '#ffffff', 'center', 600);
-      text('Tap or click to start', W / 2, H / 2 - 30, 18, '#ffd76a');
-      text('Drag across touching pieces of the same kind.', W / 2, H / 2 + 6, 15, '#c8cdd6');
-      text(`Link ${MIN_CHAIN} or more, then let go.`, W / 2, H / 2 + 28, 15, '#c8cdd6');
-      text('Every chain hurts the enemy.', W / 2, H / 2 + 50, 15, '#c8cdd6');
-      text('It fires back every few seconds.', W / 2, H / 2 + 72, 15, '#c8cdd6');
+      text('Link three', W / 2, H / 2 - 90, 34, '#ffffff', 'center', 600);
+      text('Tap or click to start', W / 2, H / 2 - 50, 18, '#ffd76a');
+      text('Drag across touching pieces of the same kind.', W / 2, H / 2 - 14, 15, '#c8cdd6');
+      text(`Link ${MIN_CHAIN} or more, then let go.`, W / 2, H / 2 + 8, 15, '#c8cdd6');
+      text('Fire hurts, water heals, earth shields.', W / 2, H / 2 + 30, 15, '#c8cdd6');
+      text('Every chain charges its power button.', W / 2, H / 2 + 52, 15, '#c8cdd6');
+      text('Wind power clears all wind pieces.', W / 2, H / 2 + 74, 15, '#c8cdd6');
       text(`★ ${lessonPoints} lesson points ready`, W / 2, H / 2 + 112, 15, '#6ee7ff');
     } else if (state === 'over') {
       ctx.fillStyle = 'rgba(11, 16, 32, 0.75)';

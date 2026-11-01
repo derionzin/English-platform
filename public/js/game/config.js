@@ -16,6 +16,11 @@ export const ASSETS = {
     hurt: 'sound/hurt.mp3',
     win: 'sound/win.mp3',
     lose: 'sound/lose.mp3',
+    heal: null,
+    shield: null,
+    block: null,
+    power: null,
+    powerReady: null,
   },
 };
 
@@ -35,6 +40,12 @@ export const PLAYER_MAX_HP = 100;
 export const ENEMY_MAX_HP = 100;
 export const DAMAGE_PER_PIECE = 2; // multiplied by the combo
 export const ENEMY_DAMAGE = 10;
+
+// Element effects
+export const HEAL_PER_PIECE = 3;       // water, multiplied by the chain bonus
+export const DEFENSE_PER_PIECE = 1;    // earth, multiplied by the chain bonus
+export const DEFENSE_MAX = ENEMY_DAMAGE; // a shield can't block more than one full hit
+
 export const ATTACK_INTERVAL = 6; // seconds between enemy attacks
 export const SHOT_SPEED = 620; // pixels per second
 export const ENEMY_SHAKE_TIME = 0.3;
@@ -62,23 +73,30 @@ export const PIECE_SHEET = {
   pixelArt: false,
 };
 
-export const COLORS = ['#ff6b6b', '#4dabf7', '#51cf66', '#ffd43b', '#b18cff'];
-export const SHAPES = [
-  { sides: 0, rot: 0 },
-  { sides: 3, rot: -Math.PI / 2 },
-  { sides: 4, rot: Math.PI / 4 },
-  { sides: 4, rot: 0 },
-  { sides: 6, rot: 0 },
+export const ELEMENTS = [
+  { id: 'fire',  name: 'Fire',  color: '#ff6b6b', shape: { sides: 3, rot: -Math.PI / 2 }, effect: 'damage',  power: null,        meterMax: 10, meterPerPiece: 1 },
+  { id: 'water', name: 'Water', color: '#4dabf7', shape: { sides: 0, rot: 0 },            effect: 'heal',    power: null,        meterMax: 10, meterPerPiece: 1 },
+  { id: 'wind',  name: 'Wind',  color: '#63e6be', shape: { sides: 4, rot: 0 },            effect: null,      power: 'clearType', meterMax: 10, meterPerPiece: 1 },
+  { id: 'earth', name: 'Earth', color: '#d9a441', shape: { sides: 4, rot: Math.PI / 4 },  effect: 'defense', power: null,        meterMax: 10, meterPerPiece: 1 },
+  { id: 'night', name: 'Night', color: '#9775fa', shape: { sides: 6, rot: 0 },            effect: null,      power: null,        meterMax: 10, meterPerPiece: 1 },
 ];
+export const COLORS = ELEMENTS.map((e) => e.color);
+export const SHAPES = ELEMENTS.map((e) => e.shape);
 export const BAR_W = 220;
 export const BAR_H = 12;
 export const ENEMY_BAR_Y = 42;
 export const PLAYER_BAR_Y = 624;
 
 // Positions on the canvas (W is the canvas width)
+// Power button row, below the player
+export const POWER = { w: 84, h: 56, gap: 8, y: 654 };
+
+// Positions on the canvas (W is the canvas width)
 export function createLayout(W) {
   const boardW = COLS * CELL;
   const boardH = ROWS * CELL;
+  const rowW = TYPES * POWER.w + (TYPES - 1) * POWER.gap;
+  const rowX = (W - rowW) / 2;
   return {
     boardX: (W - boardW) / 2,
     boardY: 176,
@@ -86,5 +104,11 @@ export function createLayout(W) {
     boardH,
     enemyBox: { x: W / 2, y: 112, w: 170, h: 100 },
     playerBox: { x: W / 2, y: 592, w: 120, h: 50 },
+    powerButtons: Array.from({ length: TYPES }, (_, i) => ({
+      x: rowX + i * (POWER.w + POWER.gap),
+      y: POWER.y,
+      w: POWER.w,
+      h: POWER.h,
+    })),
   };
 }
