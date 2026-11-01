@@ -1,5 +1,6 @@
 import {
   ASSETS, CLEAR_TIME, POINTS_PER_PIECE, DAMAGE_PER_PIECE, HEAL_PER_PIECE, DEFENSE_PER_PIECE,
+  DELAY_PER_PIECE, BOOST_PER_PIECE,
   COLORS, ELEMENTS, MIN_CHAIN, CHAIN_BONUS, createLayout,
 } from './game/config.js';
 import { createDrawUtils } from './game/draw-utils.js';
@@ -176,7 +177,7 @@ function startGame(entry) {
   function applyChain(type, removed) {
     const n = removed.length;
     const mult = 1 + (n - MIN_CHAIN) * CHAIN_BONUS;
-    const amount = (perPiece) => Math.round(n * perPiece * mult);
+    const el = ELEMENTS[type];
 
     let sx = 0;
     let sy = 0;
@@ -185,7 +186,12 @@ function startGame(entry) {
       sy += p.y;
     });
 
-    const gain = amount(POINTS_PER_PIECE);
+    // Night builds the boost. Every other effect uses it up.
+    const usesBoost = el.effect && el.effect !== 'boost';
+    const boost = usesBoost ? battle.consumeBoost() : 1;
+    const effectAmount = (perPiece) => n * perPiece * mult * boost;
+
+    const gain = Math.round(n * POINTS_PER_PIECE * mult);
     game.score += gain;
     Assets.play('match', { rate: Math.min(1 + (n - MIN_CHAIN) * 0.06, 1.6) });
     effects.popup({
@@ -193,11 +199,15 @@ function startGame(entry) {
       y: sy / n,
       text: mult > 1 ? `+${gain}  x${+mult.toFixed(2)}` : `+${gain}`,
     });
+    if (boost > 1) {
+      effects.popup({ x: sx / n, y: sy / n - 26, text: `Boost x${boost.toFixed(2)}`, color: '#b197fc' });
+    }
 
-    const el = ELEMENTS[type];
-    if (el.effect === 'damage') battle.damageEnemy(amount(DAMAGE_PER_PIECE));
-    else if (el.effect === 'heal') battle.healPlayer(amount(HEAL_PER_PIECE));
-    else if (el.effect === 'defense') battle.addDefense(amount(DEFENSE_PER_PIECE));
+    if (el.effect === 'damage') battle.damageEnemy(Math.round(effectAmount(DAMAGE_PER_PIECE)));
+    else if (el.effect === 'heal') battle.healPlayer(Math.round(effectAmount(HEAL_PER_PIECE)));
+    else if (el.effect === 'defense') battle.addDefense(Math.round(effectAmount(DEFENSE_PER_PIECE)));
+    else if (el.effect === 'delay') battle.addDelay(effectAmount(DELAY_PER_PIECE));
+    else if (el.effect === 'boost') battle.addBoost(n * BOOST_PER_PIECE * mult);
 
     powers.fill(type, n);
   }

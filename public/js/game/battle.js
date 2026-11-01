@@ -1,6 +1,6 @@
 import {
   PLAYER_MAX_HP, ENEMY_MAX_HP, ENEMY_DAMAGE, ATTACK_INTERVAL, SHOT_SPEED,
-  ENEMY_SHAKE_TIME, ENEMY_LUNGE_TIME, PLAYER_SHAKE_TIME, DEFENSE_MAX,
+  ENEMY_SHAKE_TIME, ENEMY_LUNGE_TIME, PLAYER_SHAKE_TIME, DEFENSE_MAX, BOOST_MAX,
 } from './config.js';
 
 // Assets comes from assets.js, which is loaded as a normal script.
@@ -14,6 +14,7 @@ export function createBattle({ layout, effects, onPlayerDown }) {
     playerTrail: PLAYER_MAX_HP,
     enemyTrail: ENEMY_MAX_HP,
     defense: 0,
+    boost: 0,
     attackTimer: ATTACK_INTERVAL,
     shots: [],
     enemyShake: 0,
@@ -26,6 +27,7 @@ export function createBattle({ layout, effects, onPlayerDown }) {
       battle.playerTrail = PLAYER_MAX_HP;
       battle.enemyTrail = ENEMY_MAX_HP;
       battle.defense = 0;
+      battle.boost = 0;
       battle.attackTimer = ATTACK_INTERVAL;
       battle.shots = [];
       battle.enemyShake = 0;
@@ -71,6 +73,41 @@ export function createBattle({ layout, effects, onPlayerDown }) {
         color: '#74c0fc',
       });
       Assets.play('shield');
+    },
+
+
+    addDelay(seconds) {
+      const before = battle.attackTimer;
+      battle.attackTimer = Math.min(ATTACK_INTERVAL, before + seconds);
+      const gained = battle.attackTimer - before;
+      effects.burst(enemyBox.x, enemyBox.y, '#63e6be', 12);
+      effects.popup({
+        x: enemyBox.x,
+        y: enemyBox.y + 30,
+        text: gained > 0.05 ? `+${gained.toFixed(1)}s` : 'Max delay',
+        color: '#63e6be',
+      });
+      Assets.play('delay');
+    },
+
+    addBoost(amount) {
+      const before = battle.boost;
+      battle.boost = Math.min(BOOST_MAX, before + amount);
+      effects.burst(playerBox.x, playerBox.y, '#b197fc', 14);
+      effects.popup({
+        x: playerBox.x,
+        y: playerBox.y - 36,
+        text: battle.boost > before ? `Next x${(1 + battle.boost).toFixed(2)}` : 'Boost maxed',
+        color: '#b197fc',
+      });
+      Assets.play('boost');
+    },
+
+    // Returns the multiplier for the effect being applied now, and uses the boost up.
+    consumeBoost() {
+      const multiplier = 1 + battle.boost;
+      battle.boost = 0;
+      return multiplier;
     },
 
     fireShot() {

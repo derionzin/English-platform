@@ -329,6 +329,29 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
         ctx.restore();
       }
       text(`Shield ${battle.defense}`, playerBox.x - BAR_W / 2 - 10, PLAYER_BAR_Y + BAR_H - 1, 13, '#74c0fc', 'right', 600);
+
+          // Boost from night pieces
+      if (battle.boost > 0 && result !== 'lose') {
+        ctx.save();
+        ctx.globalAlpha = 0.5 + Math.sin(time * 5) * 0.2;
+        ctx.strokeStyle = '#b197fc';
+        ctx.lineWidth = 3;
+        roundedRect(
+          playerBox.x - playerBox.w / 2 - 11,
+          playerBox.y - playerBox.h / 2 - 11,
+          playerBox.w + 22,
+          playerBox.h + 22,
+          20
+        );
+        ctx.stroke();
+        ctx.restore();
+        text(
+          `Next x${(1 + battle.boost).toFixed(2)}`,
+          playerBox.x + playerBox.w / 2 + 20,
+          playerBox.y + 5,
+          14, '#b197fc', 'left', 700
+        );
+      }
     }
 
 
@@ -376,9 +399,10 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
       text('Drag across touching pieces of the same kind.', W / 2, H / 2 - 14, 15, '#c8cdd6');
       text(`Link ${MIN_CHAIN} or more, then let go.`, W / 2, H / 2 + 8, 15, '#c8cdd6');
       text('Fire hurts, water heals, earth shields.', W / 2, H / 2 + 30, 15, '#c8cdd6');
-      text('Every chain charges its power button.', W / 2, H / 2 + 52, 15, '#c8cdd6');
-      text('Wind power clears all wind pieces.', W / 2, H / 2 + 74, 15, '#c8cdd6');
-      text(`★ ${lessonPoints} lesson points ready`, W / 2, H / 2 + 112, 15, '#6ee7ff');
+      text('Wind delays the enemy attack.', W / 2, H / 2 + 52, 15, '#c8cdd6');
+      text('Night boosts your next chain.', W / 2, H / 2 + 74, 15, '#c8cdd6');
+      text('Full power buttons unlock special moves.', W / 2, H / 2 + 96, 15, '#c8cdd6');
+      text(`★ ${lessonPoints} lesson points ready`, W / 2, H / 2 + 128, 15, '#6ee7ff');
     } else if (state === 'over') {
       ctx.fillStyle = 'rgba(11, 16, 32, 0.75)';
       ctx.fillRect(0, 0, W, H);
