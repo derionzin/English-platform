@@ -66,18 +66,22 @@ const Assets = (() => {
       })
     );
 
-    if (failed.length) console.warn('Could not load these files:', failed);
+    if (failed.length) console.warn('Could not load these files:\n' + failed.join('\n'));
     return { total, failed };
   }
 
-  const image = (name) => images[name] || null;
+  function image(name) {
+    return images[name] || null;
+  }
 
   function unlock() {
     const c = audio();
     if (c && c.state === 'suspended') c.resume();
   }
 
-  function play(name, { volume = 1, rate = 1 } = {}) {
+  function play(name, options = {}) {
+    const volume = options.volume === undefined ? 1 : options.volume;
+    const rate = options.rate === undefined ? 1 : options.rate;
     const buffer = buffers[name];
     if (!buffer || muted || !audio()) return;
     const source = ctx.createBufferSource();
@@ -118,6 +122,15 @@ const Assets = (() => {
     if (master) master.gain.value = value ? 0 : 1;
   }
 
+  function isMuted() {
+    return muted;
+  }
+
   document.addEventListener('visibilitychange', () => {
     if (!ctx) return;
-    if
+    if (document.hidden) ctx.suspend();
+    else if (ctx.state === 'suspended') ctx.resume();
+  });
+
+  return { load, image, unlock, play, playMusic, stopMusic, setMuted, isMuted };
+})();

@@ -10,12 +10,23 @@
 <body>
   <header class="bar">
     <a id="back" href="/student.html">← Back to lesson</a>
-    <span class="points">★ <span id="pointsValue">0</span> pts</span>
+    <div class="row">
+      <button id="mute" class="link">Sound on</button>
+      <span class="points">★ <span id="pointsValue">0</span> pts</span>
+    </div>
   </header>
   <main class="game-wrap">
     <p id="message" class="muted" hidden></p>
     <canvas id="game" width="480" height="640" hidden></canvas>
   </main>
+  <script>
+    window.addEventListener('error', (e) => {
+      const box = document.getElementById('message');
+      box.hidden = false;
+      box.innerHTML += 'Error: ' + e.message + ' (' + (e.filename || '').split('/').pop() + ':' + e.lineno + ')<br>';
+    });
+  </script>
+  <script src="js/assets.js"></script>
   <script src="js/game.js"></script>
 </body>
 </html>

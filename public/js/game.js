@@ -6,15 +6,41 @@ if (!student) location.href = '/';
 const entry = JSON.parse(sessionStorage.getItem('gameEntry') || 'null');
 
 /*
-  Swap placeholders for PNGs here. Paths are relative to game.html,
-  so 'img/gem-red.png' means public/img/gem-red.png.
-  Leave a slot as null to keep its placeholder.
+  List your files here. Paths are relative to game.html, so
+  'img/gem-red.png' means public/img/gem-red.png and
+  'sound/match.mp3' means public/sound/match.mp3.
+  Leave a slot as null to skip it: images keep their placeholder,
+  sounds stay silent.
 */
-const SPRITES = {
-  pieces: [null, null, null, null, null], // five piece types
-  enemy: null,
-  player: null,
+const ASSETS = {
+  images: {
+    piece0: null,
+    piece1: null,
+    piece2: null,
+    piece3: null,
+    piece4: null,
+    enemy: null,
+    player: 'img/player.png',
+  },
+  sounds: {
+    select: 'sound/select.mp3',
+    swap: 'sound/swap.mp3',
+    invalid: 'sound/invalid.mp3',
+    match: 'sound/match.mp3',
+    shuffle: 'sound/clack.mp3',
+    music: 'sound/music.mp3',
+  },
 };
+
+const muteBtn = $('mute');
+if (muteBtn) {
+  const syncMute = () => { muteBtn.textContent = Assets.isMuted() ? 'Sound off' : 'Sound on'; };
+  muteBtn.onclick = () => {
+    Assets.setMuted(!Assets.isMuted());
+    syncMute();
+  };
+  syncMute();
+}
 
 if (!entry) {
   $('message').hidden = false;
@@ -23,6 +49,44 @@ if (!entry) {
   $('back').href = `/student.html?lesson=${entry.lessonId}`;
   $('pointsValue').textContent = entry.points;
   $('game').hidden = false;
+  loadAndStart();
+}
+
+function drawLoading(done, total) {
+  const canvas = $('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width;
+  const H = canvas.height;
+  const progress = total ? done / total : 1;
+
+  ctx.fillStyle = '#0b1020';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.font = '600 22px system-ui, sans-serif';
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.fillText('Loading...', W / 2, H / 2 - 24);
+
+  const barW = 220;
+  const barX = W / 2 - barW / 2;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+  ctx.fillRect(barX, H / 2, barW, 10);
+  ctx.fillStyle = '#6ee7ff';
+  ctx.fillRect(barX, H / 2, barW * progress, 10);
+
+  ctx.font = '14px system-ui, sans-serif';
+  ctx.fillStyle = '#8a93a8';
+  ctx.fillText(total ? `${done} / ${total}` : '', W / 2, H / 2 + 38);
+}
+
+async function loadAndStart() {
+  drawLoading(0, 0);
+  const started = performance.now();
+  const result = await Assets.load(ASSETS, drawLoading);
+
+  const wait = 400 - (performance.now() - started);
+  if (result.total && wait > 0) await new Promise((r) => setTimeout(r, wait));
+
   startGame(entry);
 }
 
@@ -64,16 +128,10 @@ function startGame(entry) {
 
   /* ---------- Sprites ---------- */
 
-  function loadImage(src) {
-    if (!src) return null;
-    const img = new Image();
-    img.src = src;
-    return img;
-  }
   const images = {
-    pieces: SPRITES.pieces.map(loadImage),
-    enemy: loadImage(SPRITES.enemy),
-    player: loadImage(SPRITES.player),
+    pieces: Array.from({ length: TYPES }, (_, i) => Assets.image('piece' + i)),
+    enemy: Assets.image('enemy'),
+    player: Assets.image('player'),
   };
   const ready = (img) => !!img && img.complete && img.naturalWidth > 0;
 
@@ -209,6 +267,7 @@ function startGame(entry) {
     }
     grid.forEach((row) => row.forEach((p) => { p.scale = 0.3; }));
     notice = { text: 'No moves left. Reshuffled!', t: 1.8 };
+    Assets.play('shuffle');
   }
 
   function applyGravity() {
@@ -250,6 +309,7 @@ function startGame(entry) {
     });
     const gain = clearing.length * POINTS_PER_PIECE * combo;
     score += gain;
+    Assets.play('match', { rate: Math.min(1 + (combo - 1) * 0.08, 1.6) });
     popups.push({
       x: sx / clearing.length,
       y: sy / clearing.length,
@@ -268,6 +328,7 @@ function startGame(entry) {
     swapCells(r1, c1, r2, c2);
     selected = null;
     phase = 'swap';
+    Assets.play('swap');
   }
 
   /* ---------- Effects ---------- */
@@ -304,8 +365,10 @@ function startGame(entry) {
   canvas.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     canvas.setPointerCapture(e.pointerId);
+    Assets.unlock();
     if (state === 'ready') {
       state = 'playing';
+      Assets.playMusic('music');
       return;
     }
     if (phase !== 'idle') return;
@@ -322,6 +385,7 @@ function startGame(entry) {
       return;
     }
     selected = cell;
+    Assets.play('select');
     drag = { x: pt.x, y: pt.y, cell };
   });
 
@@ -404,6 +468,7 @@ function startGame(entry) {
         const { r1, c1, r2, c2 } = swapInfo;
         swapCells(r1, c1, r2, c2);
         phase = 'swapback';
+        Assets.play('invalid');
       }
     } else if (phase === 'swapback' && !anyMoving) {
       phase = 'idle';
