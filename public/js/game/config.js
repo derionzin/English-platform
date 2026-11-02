@@ -23,8 +23,8 @@ export const ASSETS = {
     powerReady: 'sound/powerReady.mp3',
     delay: 'sound/delay.mp3',
     boost: 'sound/boost.mp3',
-    blast: null,
-    blastHit: null,
+    blast: 'sound/blast.mp3',
+    blastHit: 'sound/blastHit.mp3',
   },
 };
 
