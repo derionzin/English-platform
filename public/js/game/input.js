@@ -1,8 +1,12 @@
 import { CELL, MIN_CHAIN, HIT_RADIUS } from './config.js';
+import { inRect } from './draw-utils.js';
 
 // Assets comes from assets.js, which is loaded as a normal script.
 
-export function createInput({ canvas, board, powers, game, onStart, onRestart, onChain, onPower }) {
+export function createInput({
+  canvas, board, powers, layout, game,
+  onStart, onRestart, onChain, onPower, onOpenStats, onStatsClick,
+}) {
   let chain = [];
   let dragging = false;
   let lastPt = null;
@@ -11,7 +15,7 @@ export function createInput({ canvas, board, powers, game, onStart, onRestart, o
   canvas.style.cursor = 'pointer';
 
   const sameCell = (a, b) => a.r === b.r && a.c === b.c;
-  const canPlay = () => game.state === 'playing' && game.phase === 'idle';
+  const canPlay = () => game.state === 'playing' && game.phase === 'idle' && !game.statsOpen;
 
   function toCanvas(e) {
     const rect = canvas.getBoundingClientRect();
@@ -66,6 +70,20 @@ export function createInput({ canvas, board, powers, game, onStart, onRestart, o
     e.preventDefault();
     canvas.setPointerCapture(e.pointerId);
     Assets.unlock();
+    const pt = toCanvas(e);
+
+    if (game.statsOpen) {
+      onStatsClick(pt);
+      return;
+    }
+
+    // The stats button works on every screen, and during a battle
+    // whenever the board is calm.
+    const calm = game.state !== 'playing' || game.phase === 'idle';
+    if (calm && inRect(pt, layout.statsButton)) {
+      onOpenStats();
+      return;
+    }
 
     if (game.state === 'ready') {
       onStart();
@@ -76,8 +94,6 @@ export function createInput({ canvas, board, powers, game, onStart, onRestart, o
       return;
     }
     if (!canPlay()) return;
-
-    const pt = toCanvas(e);
 
     const button = powers.buttonAt(pt.x, pt.y);
     if (button !== -1) {

@@ -1,13 +1,14 @@
 import {
   ASSETS, CLEAR_TIME, POINTS_PER_PIECE, DAMAGE_PER_PIECE, HEAL_PER_PIECE, DEFENSE_PER_PIECE,
   DELAY_PER_PIECE, BOOST_PER_PIECE, FIRE_POWER_DAMAGE, WATER_POWER_HEAL,
-  PLAYER_MAX_HP, DEFENSE_MAX, BOOST_MAX,
+  XP_PER_PIECE, XP_WIN_BONUS,
   COLORS, ELEMENTS, MIN_CHAIN, CHAIN_BONUS, createLayout,
 } from './game/config.js';
-import { createDrawUtils } from './game/draw-utils.js';
+import { createDrawUtils, inRect } from './game/draw-utils.js';
 import { drawLoading } from './game/loading.js';
 import { createEffects } from './game/effects.js';
 import { createBoard } from './game/board.js';
+import { createProgress } from './game/progress.js';
 import { createBattle } from './game/battle.js';
 import { createPowers } from './game/powers.js';
 import { createInput } from './game/input.js';
@@ -74,6 +75,10 @@ function startGame(entry) {
     phase: 'fall', // idle | clear | fall
     score: 0,
     time: 0,
+    statsOpen: false,
+    runXp: 0, // XP earned in the current battle
+    xpFlash: 0,
+    resetArmed: 0, // seconds left to confirm "Reset points"
   };
 
   let clearing = [];
@@ -83,21 +88,24 @@ function startGame(entry) {
   const utils = createDrawUtils(ctx);
   const effects = createEffects(W, H);
   const board = createBoard(layout);
+  const progress = createProgress(student.id);
   const battle = createBattle({
-    layout, effects,
+    layout, effects, progress,
     onPlayerDown: () => endGame('lose'),
     onEnemyDown: () => endGame('win'),
   });
   const powers = createPowers({ layout, effects });
   const input = createInput({
-    canvas, board, powers, game,
+    canvas, board, powers, layout, game,
     onStart: startPlaying,
     onRestart: tryRestart,
     onChain: startChain,
     onPower: usePower,
+    onOpenStats: openStats,
+    onStatsClick: statsClick,
   });
   const renderer = createRenderer({
-    ctx, W, H, layout, utils, effects, board, battle, powers, input, game, lessonPoints,
+    ctx, W, H, layout, utils, effects, board, battle, powers, progress, input, game, lessonPoints,
   });
 
   /* ---------- Game states ---------- */
@@ -114,7 +122,9 @@ function startGame(entry) {
 
   function restart() {
     game.score = 0;
+    game.runXp = 0;
     game.result = null;
+    game.statsOpen = false;
     battle.reset();
     powers.reset();
     effects.clear();
@@ -138,10 +148,59 @@ function startGame(entry) {
     if (outcome === 'win') {
       effects.burst(layout.enemyBox.x, layout.enemyBox.y, '#ff6b6b', 40);
       effects.burst(layout.enemyBox.x, layout.enemyBox.y, '#ffd76a', 20);
+      gainXp(XP_WIN_BONUS);
     } else {
       effects.burst(layout.playerBox.x, layout.playerBox.y, '#6ee7ff', 40);
     }
     Assets.play(outcome === 'win' ? 'win' : 'lose');
+  }
+
+  /* ---------- XP and stats ---------- */
+
+  function gainXp(amount) {
+    if (amount <= 0) return;
+    game.runXp += amount;
+    game.xpFlash = 0.4;
+    const levels = progress.addXp(amount);
+    if (levels) {
+      Assets.play('levelUp');
+      effects.showNotice(`Level ${progress.level}! +${levels} point${levels > 1 ? 's' : ''}`, 3);
+      effects.burst(layout.xpBar.x + layout.xpBar.w / 2, layout.xpBar.y, '#74c0fc', 24);
+    }
+  }
+
+  function openStats() {
+    input.reset();
+    game.resetArmed = 0;
+    game.statsOpen = true;
+    Assets.play('select');
+  }
+
+  function statsClick(pt) {
+    const s = layout.stats;
+
+    if (inRect(pt, s.close) || !inRect(pt, s.panel)) {
+      game.resetArmed = 0;
+      game.statsOpen = false;
+      return;
+    }
+    if (inRect(pt, s.reset)) {
+      if (game.resetArmed > 0) {
+        game.resetArmed = 0;
+        progress.respec();
+        battle.syncStats();
+        Assets.play('shuffle');
+      } else {
+        game.resetArmed = 3;
+      }
+      return;
+    }
+    ELEMENTS.forEach((el, i) => {
+      if (inRect(pt, s.rows[i].plus) && progress.spend(el.id)) {
+        battle.syncStats();
+        Assets.play('spend');
+      }
+    });
   }
 
   /* ---------- Turn flow ---------- */
@@ -155,7 +214,6 @@ function startGame(entry) {
     game.phase = 'clear';
   }
 
-  // The player tapped a power button.
   // The player tapped a power button.
   function usePower(type) {
     if (game.state !== 'playing' || game.phase !== 'idle') return;
@@ -193,40 +251,39 @@ function startGame(entry) {
       const boost = battle.consumeBoost();
       spend();
       showBoost(boost);
-      battle.fireBlast(Math.round(FIRE_POWER_DAMAGE * boost));
+      battle.fireBlast(FIRE_POWER_DAMAGE * boost);
     } else if (el.power === 'restore') {
       // Water: a big heal.
-      if (battle.playerHp >= PLAYER_MAX_HP) {
+      if (battle.playerHp >= battle.maxHp) {
         effects.showNotice('Already at full health');
         return;
       }
       const boost = battle.consumeBoost();
       spend();
       showBoost(boost);
-      battle.healPlayer(Math.round(WATER_POWER_HEAL * boost));
+      battle.healPlayer(WATER_POWER_HEAL * boost);
     } else if (el.power === 'fortify') {
       // Earth: fills the shield.
-      if (battle.defense >= DEFENSE_MAX) {
+      if (battle.defense >= progress.maxDefense()) {
         effects.showNotice('Shield is already full');
         return;
       }
       spend();
-      battle.addDefense(DEFENSE_MAX);
+      battle.addDefense(progress.maxDefense());
     } else if (el.power === 'overcharge') {
       // Night: maxes out the boost.
-      if (battle.boost >= BOOST_MAX) {
+      if (battle.boost >= progress.maxBoost()) {
         effects.showNotice('Boost is already maxed');
         return;
       }
       spend();
-      battle.addBoost(BOOST_MAX);
+      battle.addBoost(progress.maxBoost());
     } else {
-      // Not defined yet. The meter stays full until the power exists.
       effects.showNotice(`${el.name} power isn't set up yet`);
     }
   }
 
-  // Score, element effect and meter for a chain the player linked.
+  // Score, element effect, meter and XP for a chain the player linked.
   function applyChain(type, removed) {
     const n = removed.length;
     const mult = 1 + (n - MIN_CHAIN) * CHAIN_BONUS;
@@ -256,13 +313,15 @@ function startGame(entry) {
       effects.popup({ x: sx / n, y: sy / n - 26, text: `Boost x${boost.toFixed(2)}`, color: '#b197fc' });
     }
 
-    if (el.effect === 'damage') battle.damageEnemy(Math.round(effectAmount(DAMAGE_PER_PIECE)));
-    else if (el.effect === 'heal') battle.healPlayer(Math.round(effectAmount(HEAL_PER_PIECE)));
-    else if (el.effect === 'defense') battle.addDefense(Math.round(effectAmount(DEFENSE_PER_PIECE)));
+    // Stat multipliers are applied inside the battle functions.
+    if (el.effect === 'damage') battle.damageEnemy(effectAmount(DAMAGE_PER_PIECE));
+    else if (el.effect === 'heal') battle.healPlayer(effectAmount(HEAL_PER_PIECE));
+    else if (el.effect === 'defense') battle.addDefense(effectAmount(DEFENSE_PER_PIECE));
     else if (el.effect === 'delay') battle.addDelay(effectAmount(DELAY_PER_PIECE));
     else if (el.effect === 'boost') battle.addBoost(n * BOOST_PER_PIECE * mult);
 
     powers.fill(type, n);
+    gainXp(Math.round(n * XP_PER_PIECE * mult));
   }
 
   function finishClear() {
@@ -288,10 +347,15 @@ function startGame(entry) {
 
   function update(dt) {
     game.time += dt;
+    game.xpFlash = Math.max(0, game.xpFlash - dt);
+    game.resetArmed = Math.max(0, game.resetArmed - dt);
     effects.update(dt);
     powers.update(dt);
     battle.animate(dt);
     const moving = board.move(dt);
+
+    // The stats panel pauses the battle.
+    if (game.statsOpen) return;
 
     if (game.state === 'playing') battle.update(dt);
     if (game.state === 'over') return;

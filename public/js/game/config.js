@@ -25,6 +25,8 @@ export const ASSETS = {
     boost: 'sound/boost.mp3',
     blast: 'sound/blast.mp3',
     blastHit: 'sound/blastHit.mp3',
+    levelUp: null,
+    spend: null,
   },
 };
 
@@ -99,24 +101,54 @@ export const WATER_POWER_HEAL = 40;
 // Power button row, below the player
 export const POWER = { w: 84, h: 54, gap: 8, y: 570 };
 
+// Progression
+export const XP_PER_PIECE = 2;   // per piece in a chain, with the chain bonus
+export const XP_WIN_BONUS = 60;  // for beating the enemy
+export const xpToNext = (level) => 100 + (level - 1) * 40;
+export const STAT_CAP = 10;      // most points one element can hold
+
+// What each stat point does
+export const STATS = {
+  fire:  { damage: 0.08 },                 // +8% damage
+  water: { hp: 5, heal: 0.10 },            // +5 max health, +10% healing
+  earth: { defense: 2, shield: 0.10 },     // +2 max shield, +10% shield gain
+  wind:  { interval: 0.06, delay: 0.10 },  // +6% time between attacks, +10% delay
+  night: { boost: 0.15 },                  // +0.15 max boost
+};
+
 // Positions on the canvas (W is the canvas width)
 export function createLayout(W) {
   const boardW = COLS * CELL;
   const boardH = ROWS * CELL;
   const rowW = TYPES * POWER.w + (TYPES - 1) * POWER.gap;
   const rowX = (W - rowW) / 2;
+
+  const panel = { x: 24, y: 96, w: W - 48, h: 500 };
+  const rows = Array.from({ length: TYPES }, (_, i) => {
+    const y = panel.y + 76 + i * 70;
+    return { y, h: 64, plus: { x: panel.x + panel.w - 76, y: y + 8, w: 48, h: 48 } };
+  });
+
   return {
     boardX: (W - boardW) / 2,
-    boardY: 152,
+    boardY: 176,
     boardW,
     boardH,
-    enemyBox: { x: W / 2, y: 102, w: 170, h: 76 },
-    playerBox: { x: W / 2, y: 516, w: 120, h: 40 },
+    enemyBox: { x: W / 2, y: 112, w: 170, h: 100 },
+    playerBox: { x: W / 2, y: 592, w: 120, h: 50 },
     powerButtons: Array.from({ length: TYPES }, (_, i) => ({
       x: rowX + i * (POWER.w + POWER.gap),
       y: POWER.y,
       w: POWER.w,
       h: POWER.h,
     })),
+    xpBar: { x: 64, y: 728, w: 250, h: 10 },
+    statsButton: { x: W - 144, y: 718, w: 128, h: 34 },
+    stats: {
+      panel,
+      rows,
+      reset: { x: panel.x + 24, y: panel.y + panel.h - 56, w: 140, h: 40 },
+      close: { x: panel.x + panel.w - 164, y: panel.y + panel.h - 56, w: 140, h: 40 },
+    },
   };
 }

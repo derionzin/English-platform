@@ -1,11 +1,11 @@
 import {
-  PLAYER_MAX_HP, ENEMY_MAX_HP, ENEMY_DAMAGE, ATTACK_INTERVAL, SHOT_SPEED,
-  ENEMY_SHAKE_TIME, ENEMY_LUNGE_TIME, PLAYER_SHAKE_TIME, DEFENSE_MAX, BOOST_MAX,
+  ENEMY_MAX_HP, ENEMY_DAMAGE, SHOT_SPEED,
+  ENEMY_SHAKE_TIME, ENEMY_LUNGE_TIME, PLAYER_SHAKE_TIME,
 } from './config.js';
 
 // Assets comes from assets.js, which is loaded as a normal script.
 
-export function createBattle({ layout, effects, onPlayerDown, onEnemyDown }) {
+export function createBattle({ layout, effects, progress, onPlayerDown, onEnemyDown }) {
   const { enemyBox, playerBox } = layout;
 
   function makeShot(kind, sx, sy, tx, ty, extra) {
@@ -17,35 +17,61 @@ export function createBattle({ layout, effects, onPlayerDown, onEnemyDown }) {
     };
   }
 
+  const startMax = progress.maxHp();
+  const startInterval = progress.attackInterval();
+
   const battle = {
-    playerHp: PLAYER_MAX_HP,
+    maxHp: startMax,
+    interval: startInterval, // seconds between enemy attacks
+    playerHp: startMax,
     enemyHp: ENEMY_MAX_HP,
-    playerTrail: PLAYER_MAX_HP,
+    playerTrail: startMax,
     enemyTrail: ENEMY_MAX_HP,
     defense: 0,
     boost: 0,
-    attackTimer: ATTACK_INTERVAL,
+    attackTimer: startInterval,
     shots: [],
     enemyShake: 0,
     enemyLunge: 0,
     playerShake: 0,
 
     reset() {
-      battle.playerHp = PLAYER_MAX_HP;
+      battle.maxHp = progress.maxHp();
+      battle.interval = progress.attackInterval();
+      battle.playerHp = battle.maxHp;
       battle.enemyHp = ENEMY_MAX_HP;
-      battle.playerTrail = PLAYER_MAX_HP;
+      battle.playerTrail = battle.maxHp;
       battle.enemyTrail = ENEMY_MAX_HP;
       battle.defense = 0;
       battle.boost = 0;
-      battle.attackTimer = ATTACK_INTERVAL;
+      battle.attackTimer = battle.interval;
       battle.shots = [];
       battle.enemyShake = 0;
       battle.enemyLunge = 0;
       battle.playerShake = 0;
     },
 
+    // Call after stat points change, so the battle matches the new stats.
+    syncStats() {
+      const newMax = progress.maxHp();
+      const diff = newMax - battle.maxHp;
+      battle.maxHp = newMax;
+      if (diff > 0) {
+        battle.playerHp += diff;
+        battle.playerTrail += diff;
+      }
+      battle.playerHp = Math.min(battle.playerHp, newMax);
+      battle.playerTrail = Math.min(battle.playerTrail, newMax);
+      battle.defense = Math.min(battle.defense, progress.maxDefense());
+      battle.boost = Math.min(battle.boost, progress.maxBoost());
+
+      const newInterval = progress.attackInterval();
+      battle.attackTimer *= newInterval / battle.interval;
+      battle.interval = newInterval;
+    },
+
     resetAttackTimer() {
-      battle.attackTimer = ATTACK_INTERVAL;
+      battle.attackTimer = battle.interval;
     },
 
     clearShots() {
@@ -53,13 +79,15 @@ export function createBattle({ layout, effects, onPlayerDown, onEnemyDown }) {
     },
 
     damageEnemy(amount) {
-      battle.enemyHp = Math.max(0, battle.enemyHp - amount);
+      const dealt = Math.round(amount * progress.damageMult());
+      battle.enemyHp = Math.max(0, battle.enemyHp - dealt);
       battle.enemyShake = ENEMY_SHAKE_TIME;
-      effects.popup({ x: enemyBox.x, y: enemyBox.y, text: `-${amount}`, color: '#ff6b6b' });
+      effects.popup({ x: enemyBox.x, y: enemyBox.y, text: `-${dealt}`, color: '#ff6b6b' });
     },
 
     healPlayer(amount) {
-      const healed = Math.min(amount, PLAYER_MAX_HP - battle.playerHp);
+      const target = Math.round(amount * progress.healMult());
+      const healed = Math.min(target, battle.maxHp - battle.playerHp);
       battle.playerHp += healed;
       if (healed > 0) {
         effects.burst(playerBox.x, playerBox.y, '#51cf66', 16);
@@ -72,7 +100,7 @@ export function createBattle({ layout, effects, onPlayerDown, onEnemyDown }) {
 
     addDefense(amount) {
       const before = battle.defense;
-      battle.defense = Math.min(DEFENSE_MAX, before + amount);
+      battle.defense = Math.min(progress.maxDefense(), before + Math.round(amount * progress.shieldMult()));
       const gained = battle.defense - before;
       effects.burst(playerBox.x, playerBox.y, '#74c0fc', 14);
       effects.popup({
@@ -86,7 +114,7 @@ export function createBattle({ layout, effects, onPlayerDown, onEnemyDown }) {
 
     addDelay(seconds) {
       const before = battle.attackTimer;
-      battle.attackTimer = Math.min(ATTACK_INTERVAL, before + seconds);
+      battle.attackTimer = Math.min(battle.interval, before + seconds * progress.delayMult());
       const gained = battle.attackTimer - before;
       effects.burst(enemyBox.x, enemyBox.y, '#63e6be', 12);
       effects.popup({
@@ -100,7 +128,7 @@ export function createBattle({ layout, effects, onPlayerDown, onEnemyDown }) {
 
     addBoost(amount) {
       const before = battle.boost;
-      battle.boost = Math.min(BOOST_MAX, before + amount);
+      battle.boost = Math.min(progress.maxBoost(), before + amount);
       effects.burst(playerBox.x, playerBox.y, '#b197fc', 14);
       effects.popup({
         x: playerBox.x,
@@ -158,10 +186,10 @@ export function createBattle({ layout, effects, onPlayerDown, onEnemyDown }) {
       const tx = playerBox.x;
       const ty = playerBox.y;
 
-      // The shield takes its share of this hit and is used up.
+      // The shield soaks up what it can, and keeps whatever it didn't need.
       const blocked = Math.min(battle.defense, ENEMY_DAMAGE);
       const damage = ENEMY_DAMAGE - blocked;
-      battle.defense = 0;
+      battle.defense -= blocked;
       battle.playerHp = Math.max(0, battle.playerHp - damage);
 
       if (damage > 0) {
@@ -187,7 +215,7 @@ export function createBattle({ layout, effects, onPlayerDown, onEnemyDown }) {
     update(dt) {
       battle.attackTimer -= dt;
       if (battle.attackTimer <= 0) {
-        battle.attackTimer = ATTACK_INTERVAL;
+        battle.attackTimer = battle.interval;
         battle.fireShot();
       }
 

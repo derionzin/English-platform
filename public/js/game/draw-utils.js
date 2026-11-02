@@ -27,3 +27,6 @@ export function createDrawUtils(ctx) {
 
   return { roundedRect, text, ready, drawFitted };
 }
+
+export const inRect = (pt, r) =>
+  pt.x >= r.x && pt.x <= r.x + r.w && pt.y >= r.y && pt.y <= r.y + r.h;

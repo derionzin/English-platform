@@ -1,14 +1,15 @@
 import {
-  COLS, ROWS, CELL, COLORS, SHAPES, PIECE_SHEET, MIN_CHAIN, ELEMENTS,
-  BAR_W, BAR_H, ENEMY_BAR_Y, PLAYER_BAR_Y,
-  PLAYER_MAX_HP, ENEMY_MAX_HP, ATTACK_INTERVAL,
+  COLS, ROWS, CELL, COLORS, SHAPES, PIECE_SHEET, MIN_CHAIN, ELEMENTS, STAT_CAP,
+  BAR_W, BAR_H, ENEMY_BAR_Y, PLAYER_BAR_Y, ENEMY_MAX_HP,
   ENEMY_SHAKE_TIME, ENEMY_LUNGE_TIME, PLAYER_SHAKE_TIME,
 } from './config.js';
 import { createSpriteSheet, createAnimator } from './animation.js';
 
 // Assets comes from assets.js, which is loaded as a normal script.
 
-export function createRenderer({ ctx, W, H, layout, utils, effects, board, battle, powers, input, game, lessonPoints }) {
+export function createRenderer({
+  ctx, W, H, layout, utils, effects, board, battle, powers, progress, input, game, lessonPoints,
+}) {
   const { roundedRect, text, ready, drawFitted } = utils;
   const { boardX, boardY, boardW, boardH, enemyBox, playerBox } = layout;
 
@@ -31,7 +32,6 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
     mode: PIECE_SHEET.mode,
   });
 
-  // `animating` is true for pieces in the current chain and for pieces being cleared.
   function drawShape(type, R) {
     const shape = SHAPES[type];
     ctx.fillStyle = COLORS[type];
@@ -81,7 +81,7 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
     ctx.restore();
   }
 
-  // A small piece image, used on the power buttons.
+  // A small piece image, used on the power buttons and the stats panel.
   function drawIcon(type, cx, cy, size, animated) {
     ctx.save();
     ctx.translate(cx, cy);
@@ -187,7 +187,112 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
       }
     });
   }
-  
+
+  // Level, XP bar and the Stats button along the bottom.
+  function drawBottomStrip() {
+    const { xpBar, statsButton: sb } = layout;
+    const points = progress.points;
+    const busy = game.state === 'playing' && game.phase !== 'idle';
+
+    text(`Lv ${progress.level}`, 16, xpBar.y + 10, 16, '#ffffff', 'left', 700);
+
+    roundedRect(xpBar.x, xpBar.y, xpBar.w, xpBar.h, xpBar.h / 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.fill();
+    ctx.save();
+    roundedRect(xpBar.x, xpBar.y, xpBar.w, xpBar.h, xpBar.h / 2);
+    ctx.clip();
+    ctx.fillStyle = '#74c0fc';
+    ctx.fillRect(xpBar.x, xpBar.y, xpBar.w * Math.min(1, progress.xp / progress.xpNeeded()), xpBar.h);
+    if (game.xpFlash > 0) {
+      ctx.globalAlpha = (game.xpFlash / 0.4) * 0.6;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(xpBar.x, xpBar.y, xpBar.w, xpBar.h);
+    }
+    ctx.restore();
+    text(`${progress.xp}/${progress.xpNeeded()} XP`, xpBar.x + xpBar.w / 2, xpBar.y + xpBar.h + 15, 12, '#8a93a8');
+
+    ctx.globalAlpha = busy ? 0.4 : 1;
+    roundedRect(sb.x, sb.y, sb.w, sb.h, 10);
+    ctx.fillStyle = points > 0 ? 'rgba(255, 215, 106, 0.2)' : 'rgba(255, 255, 255, 0.08)';
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = points > 0 ? '#ffd76a' : 'rgba(255, 255, 255, 0.3)';
+    ctx.stroke();
+    text('Stats', sb.x + sb.w / 2, sb.y + sb.h / 2 + 5, 15, points > 0 ? '#ffd76a' : '#c8cdd6', 'center', 600);
+    ctx.globalAlpha = 1;
+
+    if (points > 0) {
+      const pulse = 1 + Math.sin(game.time * 6) * 0.1;
+      ctx.save();
+      ctx.translate(sb.x + sb.w - 4, sb.y + 2);
+      ctx.scale(pulse, pulse);
+      ctx.beginPath();
+      ctx.arc(0, 0, 11, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffd76a';
+      ctx.fill();
+      text(String(points), 0, 5, 13, '#0b1020', 'center', 700);
+      ctx.restore();
+    }
+  }
+
+  function drawStatsPanel() {
+    const s = layout.stats;
+    const points = progress.points;
+
+    ctx.fillStyle = 'rgba(11, 16, 32, 0.82)';
+    ctx.fillRect(0, 0, W, H);
+
+    roundedRect(s.panel.x, s.panel.y, s.panel.w, s.panel.h, 16);
+    ctx.fillStyle = '#141b33';
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.stroke();
+
+    text(`Level ${progress.level}`, W / 2, s.panel.y + 36, 24, '#ffffff', 'center', 700);
+    text(
+      points > 0 ? `${points} point${points === 1 ? '' : 's'} to spend` : 'No points to spend',
+      W / 2, s.panel.y + 60, 15, points > 0 ? '#ffd76a' : '#8a93a8', 'center', 600
+    );
+
+    ELEMENTS.forEach((el, i) => {
+      const row = s.rows[i];
+      const x = s.panel.x + 20;
+      const can = progress.canSpend(el.id);
+
+      roundedRect(x, row.y, s.panel.w - 40, row.h, 10);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+      ctx.fill();
+
+      drawIcon(i, x + 28, row.y + row.h / 2, 34, false);
+      text(`${el.name}  ${progress.allocated(el.id)}/${STAT_CAP}`, x + 58, row.y + 24, 15, el.color, 'left', 700);
+      progress.describe(el.id).forEach((line, j) => {
+        text(line, x + 58, row.y + 42 + j * 15, 12, '#c8cdd6', 'left');
+      });
+
+      const p = row.plus;
+      ctx.globalAlpha = can ? 1 : 0.3;
+      roundedRect(p.x, p.y, p.w, p.h, 10);
+      ctx.fillStyle = can ? el.color : 'rgba(255, 255, 255, 0.15)';
+      ctx.fill();
+      text('+', p.x + p.w / 2, p.y + p.h / 2 + 9, 28, '#0b1020', 'center', 700);
+      ctx.globalAlpha = 1;
+    });
+
+    const armed = game.resetArmed > 0;
+    const button = (r, label, fill, color) => {
+      roundedRect(r.x, r.y, r.w, r.h, 10);
+      ctx.fillStyle = fill;
+      ctx.fill();
+      text(label, r.x + r.w / 2, r.y + r.h / 2 + 5, 14, color, 'center', 600);
+    };
+    button(
+      s.reset, armed ? 'Tap to confirm' : 'Reset points',
+      armed ? '#ff6b6b' : 'rgba(255, 255, 255, 0.1)', armed ? '#0b1020' : '#c8cdd6'
+    );
+    button(s.close, 'Close', '#2f6fed', '#ffffff');
+  }
 
   function render() {
     const { state, result, phase, score, time } = game;
@@ -217,7 +322,7 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
     ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
     ctx.fillRect(enemyBox.x - BAR_W / 2, chargeY, BAR_W, 3);
     ctx.fillStyle = '#ffa94d';
-    ctx.fillRect(enemyBox.x - BAR_W / 2, chargeY, BAR_W * (1 - battle.attackTimer / ATTACK_INTERVAL), 3);
+    ctx.fillRect(enemyBox.x - BAR_W / 2, chargeY, BAR_W * (1 - battle.attackTimer / battle.interval), 3);
 
     // Board
     roundedRect(boardX - 6, boardY - 6, boardW + 12, boardH + 12, 14);
@@ -308,10 +413,12 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
     }
     drawBar(
       playerBox.x, PLAYER_BAR_Y, battle.playerHp, battle.playerTrail,
-      PLAYER_MAX_HP, hpColor(battle.playerHp / PLAYER_MAX_HP)
+      battle.maxHp, hpColor(battle.playerHp / battle.maxHp)
     );
 
-            // Shield from earth pieces
+    drawPowerButtons();
+
+    // Shield from earth pieces
     if (battle.defense > 0) {
       if (result !== 'lose') {
         ctx.save();
@@ -328,38 +435,36 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
         ctx.stroke();
         ctx.restore();
       }
-      text(`Shield ${battle.defense}`, playerBox.x - BAR_W / 2 - 10, PLAYER_BAR_Y + BAR_H - 1, 13, '#74c0fc', 'right', 600);
-
-          // Boost from night pieces
-      if (battle.boost > 0 && result !== 'lose') {
-        ctx.save();
-        ctx.globalAlpha = 0.5 + Math.sin(time * 5) * 0.2;
-        ctx.strokeStyle = '#b197fc';
-        ctx.lineWidth = 3;
-        roundedRect(
-          playerBox.x - playerBox.w / 2 - 11,
-          playerBox.y - playerBox.h / 2 - 11,
-          playerBox.w + 22,
-          playerBox.h + 22,
-          20
-        );
-        ctx.stroke();
-        ctx.restore();
-        text(
-          `Next x${(1 + battle.boost).toFixed(2)}`,
-          playerBox.x + playerBox.w / 2 + 20,
-          playerBox.y + 5,
-          14, '#b197fc', 'left', 700
-        );
-      }
+      text(
+        `Shield ${battle.defense}/${progress.maxDefense()}`,
+        playerBox.x - BAR_W / 2 - 10, PLAYER_BAR_Y + BAR_H - 1, 13, '#74c0fc', 'right', 600
+      );
     }
 
+    // Boost multiplier, always visible. The ring only shows while a boost is stored.
+    const boostOn = battle.boost > 0;
+    if (boostOn && result !== 'lose') {
+      ctx.save();
+      ctx.globalAlpha = 0.5 + Math.sin(time * 5) * 0.2;
+      ctx.strokeStyle = '#b197fc';
+      ctx.lineWidth = 3;
+      roundedRect(
+        playerBox.x - playerBox.w / 2 - 11,
+        playerBox.y - playerBox.h / 2 - 11,
+        playerBox.w + 22,
+        playerBox.h + 22,
+        20
+      );
+      ctx.stroke();
+      ctx.restore();
+    }
+    const boostX = playerBox.x + playerBox.w / 2 + 20;
+    text(
+      `Boost x${(1 + battle.boost).toFixed(2)}`,
+      boostX, playerBox.y - 2, 14, boostOn ? '#b197fc' : '#6b7285', 'left', 700
+    );
+    text(`max x${(1 + progress.maxBoost()).toFixed(2)}`, boostX, playerBox.y + 16, 12, '#8a93a8', 'left');
 
-
-
-    drawPowerButtons();
-
-    // Enemy shots
     // Shots in flight
     battle.shots.forEach((s) => {
       ctx.fillStyle = s.color;
@@ -403,17 +508,28 @@ export function createRenderer({ ctx, W, H, layout, utils, effects, board, battl
       text('Wind delays the enemy attack.', W / 2, H / 2 + 52, 15, '#c8cdd6');
       text('Night boosts your next chain.', W / 2, H / 2 + 74, 15, '#c8cdd6');
       text('Full power buttons unlock special moves.', W / 2, H / 2 + 96, 15, '#c8cdd6');
-      text(`★ ${lessonPoints} lesson points ready`, W / 2, H / 2 + 128, 15, '#6ee7ff');
+      text('Earn XP to level up and grow your stats.', W / 2, H / 2 + 118, 15, '#74c0fc');
+      text(`★ ${lessonPoints} lesson points ready`, W / 2, H / 2 + 150, 15, '#6ee7ff');
     } else if (state === 'over') {
       ctx.fillStyle = 'rgba(11, 16, 32, 0.75)';
       ctx.fillRect(0, 0, W, H);
       const won = result === 'win';
       text(won ? 'Victory!' : 'Defeat', W / 2, H / 2 - 50, 38, won ? '#ffd76a' : '#ff6b6b', 'center', 700);
       text(`Score ${score}`, W / 2, H / 2 - 8, 22, '#ffffff', 'center', 600);
+      text(`+${game.runXp} XP`, W / 2, H / 2 + 22, 18, '#74c0fc', 'center', 600);
+      if (progress.points > 0) {
+        text(
+          `${progress.points} stat point${progress.points === 1 ? '' : 's'} to spend`,
+          W / 2, H / 2 + 48, 16, '#ffd76a', 'center', 600
+        );
+      }
       if (performance.now() - game.overAt > 700) {
-        text('Tap or click to play again', W / 2, H / 2 + 40, 18, '#c8cdd6');
+        text('Tap or click to play again', W / 2, H / 2 + 88, 18, '#c8cdd6');
       }
     }
+
+    drawBottomStrip();
+    if (game.statsOpen) drawStatsPanel();
   }
 
   return { render };
