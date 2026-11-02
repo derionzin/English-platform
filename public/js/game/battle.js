@@ -1,47 +1,63 @@
 import {
-  ENEMY_MAX_HP, ENEMY_DAMAGE, SHOT_SPEED,
-  ENEMY_SHAKE_TIME, ENEMY_LUNGE_TIME, PLAYER_SHAKE_TIME,
+  SHOT_SPEED, ENEMY_SHAKE_TIME, ENEMY_LUNGE_TIME, PLAYER_SHAKE_TIME,
 } from './config.js';
+import { ENEMIES } from './enemies.js';
 
 // Assets comes from assets.js, which is loaded as a normal script.
 
 export function createBattle({ layout, effects, progress, onPlayerDown, onEnemyDown }) {
   const { enemyBox, playerBox } = layout;
+  let enemy = ENEMIES[0];
 
   function makeShot(kind, sx, sy, tx, ty, extra) {
     return {
-      kind, sx, sy, tx, ty, x: sx, y: sy, t: 0,
-      dur: Math.hypot(tx - sx, ty - sy) / SHOT_SPEED,
-      done: false,
+      kind, sx, sy, tx, ty, x: sx, y: sy, t: 0, wait: 0, radius: 9, done: false,
+      dur: Math.hypot(tx - sx, ty - sy) / (extra.speed || SHOT_SPEED),
       ...extra,
     };
   }
 
-  const startMax = progress.maxHp();
-  const startInterval = progress.attackInterval();
+  // A shot leaves the enemy: lunge, attack animation and sound.
+  function launch(shot) {
+    if (shot.kind !== 'enemy') return;
+    battle.enemyLunge = ENEMY_LUNGE_TIME;
+    battle.playEnemyAction('attack');
+    Assets.play('shoot');
+  }
 
   const battle = {
-    maxHp: startMax,
-    interval: startInterval, // seconds between enemy attacks
-    playerHp: startMax,
-    enemyHp: ENEMY_MAX_HP,
-    playerTrail: startMax,
-    enemyTrail: ENEMY_MAX_HP,
+    maxHp: 0,
+    interval: 0, // seconds between enemy attacks, after the Wind stat
+    playerHp: 0,
+    enemyMax: 0,
+    enemyHp: 0,
+    playerTrail: 0,
+    enemyTrail: 0,
     defense: 0,
     boost: 0,
-    attackTimer: startInterval,
+    attackTimer: 0,
     shots: [],
     enemyShake: 0,
     enemyLunge: 0,
     playerShake: 0,
+    action: { name: 'idle', t: 0, dur: 0 }, // which enemy animation is playing
+
+    get enemy() { return enemy; },
+
+    // Begin a fresh battle against one of the presets.
+    start(newEnemy) {
+      enemy = newEnemy;
+      battle.reset();
+    },
 
     reset() {
       battle.maxHp = progress.maxHp();
-      battle.interval = progress.attackInterval();
+      battle.interval = progress.attackInterval(enemy.interval);
       battle.playerHp = battle.maxHp;
-      battle.enemyHp = ENEMY_MAX_HP;
+      battle.enemyMax = enemy.hp;
+      battle.enemyHp = enemy.hp;
       battle.playerTrail = battle.maxHp;
-      battle.enemyTrail = ENEMY_MAX_HP;
+      battle.enemyTrail = enemy.hp;
       battle.defense = 0;
       battle.boost = 0;
       battle.attackTimer = battle.interval;
@@ -49,6 +65,7 @@ export function createBattle({ layout, effects, progress, onPlayerDown, onEnemyD
       battle.enemyShake = 0;
       battle.enemyLunge = 0;
       battle.playerShake = 0;
+      battle.action = { name: 'idle', t: 0, dur: 0 };
     },
 
     // Call after stat points change, so the battle matches the new stats.
@@ -65,7 +82,7 @@ export function createBattle({ layout, effects, progress, onPlayerDown, onEnemyD
       battle.defense = Math.min(battle.defense, progress.maxDefense());
       battle.boost = Math.min(battle.boost, progress.maxBoost());
 
-      const newInterval = progress.attackInterval();
+      const newInterval = progress.attackInterval(enemy.interval);
       battle.attackTimer *= newInterval / battle.interval;
       battle.interval = newInterval;
     },
@@ -78,10 +95,20 @@ export function createBattle({ layout, effects, progress, onPlayerDown, onEnemyD
       battle.shots = [];
     },
 
+    // Plays 'attack' or 'hurt' from the enemy's sprite sheet, if it has that row.
+    playEnemyAction(name) {
+      const states = enemy.sprite && enemy.sprite.states;
+      const state = states && states[name];
+      if (!state) return;
+      if (name === 'hurt' && battle.action.name === 'attack') return;
+      battle.action = { name, t: 0, dur: state.frames / state.fps };
+    },
+
     damageEnemy(amount) {
       const dealt = Math.round(amount * progress.damageMult());
       battle.enemyHp = Math.max(0, battle.enemyHp - dealt);
       battle.enemyShake = ENEMY_SHAKE_TIME;
+      battle.playEnemyAction('hurt');
       effects.popup({ x: enemyBox.x, y: enemyBox.y, text: `-${dealt}`, color: '#ff6b6b' });
     },
 
@@ -146,18 +173,21 @@ export function createBattle({ layout, effects, progress, onPlayerDown, onEnemyD
       return multiplier;
     },
 
-    // The enemy shoots at the player.
+    // The enemy attacks: one shot, or a volley fired one after another.
     fireShot() {
-      battle.shots.push(
-        makeShot(
+      const count = enemy.volley || 1;
+      const gap = enemy.volleyGap ?? 0.35;
+      for (let i = 0; i < count; i++) {
+        const spread = (i - (count - 1) / 2) * 28;
+        const shot = makeShot(
           'enemy',
           enemyBox.x, enemyBox.y + enemyBox.h / 2,
-          playerBox.x, playerBox.y,
-          { color: '#ff6b6b', core: '#ffffff', trail: ['#ff8a5c', '#ffd76a'] }
-        )
-      );
-      battle.enemyLunge = ENEMY_LUNGE_TIME;
-      Assets.play('shoot');
+          playerBox.x + spread, playerBox.y,
+          { ...enemy.shot, speed: enemy.shotSpeed, wait: i * gap }
+        );
+        battle.shots.push(shot);
+        if (shot.wait === 0) launch(shot);
+      }
     },
 
     // The fire power: the player shoots at the enemy.
@@ -187,8 +217,8 @@ export function createBattle({ layout, effects, progress, onPlayerDown, onEnemyD
       const ty = playerBox.y;
 
       // The shield soaks up what it can, and keeps whatever it didn't need.
-      const blocked = Math.min(battle.defense, ENEMY_DAMAGE);
-      const damage = ENEMY_DAMAGE - blocked;
+      const blocked = Math.min(battle.defense, enemy.damage);
+      const damage = enemy.damage - blocked;
       battle.defense -= blocked;
       battle.playerHp = Math.max(0, battle.playerHp - damage);
 
@@ -220,6 +250,11 @@ export function createBattle({ layout, effects, progress, onPlayerDown, onEnemyD
       }
 
       battle.shots.forEach((s) => {
+        if (s.wait > 0) {
+          s.wait -= dt;
+          if (s.wait <= 0) launch(s);
+          return;
+        }
         s.t += dt;
         const k = Math.min(1, s.t / s.dur);
         s.x = s.sx + (s.tx - s.sx) * k;
@@ -235,11 +270,16 @@ export function createBattle({ layout, effects, progress, onPlayerDown, onEnemyD
       battle.shots = battle.shots.filter((s) => !s.done);
     },
 
-    // Shake timers and the fading health bars. Runs every frame.
+    // Shake timers, the enemy animation and the fading health bars. Runs every frame.
     animate(dt) {
       battle.enemyShake = Math.max(0, battle.enemyShake - dt);
       battle.enemyLunge = Math.max(0, battle.enemyLunge - dt);
       battle.playerShake = Math.max(0, battle.playerShake - dt);
+
+      battle.action.t += dt;
+      if (battle.action.name !== 'idle' && battle.action.t >= battle.action.dur) {
+        battle.action = { name: 'idle', t: 0, dur: 0 };
+      }
 
       battle.enemyTrail =
         battle.enemyTrail > battle.enemyHp
@@ -252,5 +292,6 @@ export function createBattle({ layout, effects, progress, onPlayerDown, onEnemyD
     },
   };
 
+  battle.reset();
   return battle;
 }

@@ -2,18 +2,24 @@ import {
   PLAYER_MAX_HP, DEFENSE_MAX, BOOST_MAX, ATTACK_INTERVAL,
   ELEMENTS, STATS, STAT_CAP, xpToNext,
 } from './config.js';
+import { ENEMIES } from './enemies.js';
 
-// Level, XP and stat points for one student, saved in the browser.
+// Level, XP, stat points and defeated enemies for one student, saved in the browser.
 export function createProgress(studentId) {
   const key = `progress-${studentId}`;
   const emptyAlloc = () => Object.fromEntries(ELEMENTS.map((e) => [e.id, 0]));
-  const fresh = () => ({ level: 1, xp: 0, points: 0, alloc: emptyAlloc() });
+  const fresh = () => ({ level: 1, xp: 0, points: 0, alloc: emptyAlloc(), defeated: [] });
 
   let data = fresh();
   try {
     const saved = JSON.parse(localStorage.getItem(key));
     if (saved && typeof saved === 'object') {
-      data = { ...fresh(), ...saved, alloc: { ...emptyAlloc(), ...(saved.alloc || {}) } };
+      data = {
+        ...fresh(),
+        ...saved,
+        alloc: { ...emptyAlloc(), ...(saved.alloc || {}) },
+        defeated: Array.isArray(saved.defeated) ? saved.defeated : [],
+      };
     }
   } catch {}
 
@@ -60,12 +66,24 @@ export function createProgress(studentId) {
       return levels;
     },
 
+    // Enemies: the first is always open, the others need the previous one beaten.
+    isDefeated: (id) => data.defeated.includes(id),
+    isUnlocked: (index) => index === 0 || data.defeated.includes(ENEMIES[index - 1].id),
+
+    // Returns true the first time an enemy is beaten.
+    markDefeated(id) {
+      if (data.defeated.includes(id)) return false;
+      data.defeated.push(id);
+      save();
+      return true;
+    },
+
     damageMult: () => 1 + STATS.fire.damage * pts('fire'),
     maxHp: () => PLAYER_MAX_HP + STATS.water.hp * pts('water'),
     healMult: () => 1 + STATS.water.heal * pts('water'),
     maxDefense: () => DEFENSE_MAX + STATS.earth.defense * pts('earth'),
     shieldMult: () => 1 + STATS.earth.shield * pts('earth'),
-    attackInterval: () => ATTACK_INTERVAL * (1 + STATS.wind.interval * pts('wind')),
+    attackInterval: (base = ATTACK_INTERVAL) => base * (1 + STATS.wind.interval * pts('wind')),
     delayMult: () => 1 + STATS.wind.delay * pts('wind'),
     maxBoost: () => BOOST_MAX + STATS.night.boost * pts('night'),
 
@@ -79,7 +97,7 @@ export function createProgress(studentId) {
         case 'earth':
           return [`Max shield ${progress.maxDefense()}`, `Shield gain x${progress.shieldMult().toFixed(2)}`];
         case 'wind':
-          return [`Enemy fires every ${progress.attackInterval().toFixed(1)}s`, `Delay x${progress.delayMult().toFixed(2)}`];
+          return [`Enemy attack time x${(1 + STATS.wind.interval * pts('wind')).toFixed(2)}`, `Delay x${progress.delayMult().toFixed(2)}`];
         case 'night':
           return [`Max boost x${(1 + progress.maxBoost()).toFixed(2)}`];
         default:

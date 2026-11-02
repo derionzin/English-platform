@@ -5,7 +5,7 @@ import { inRect } from './draw-utils.js';
 
 export function createInput({
   canvas, board, powers, layout, game,
-  onStart, onRestart, onChain, onPower, onOpenStats, onStatsClick,
+  onSelectClick, onOverClick, onChain, onPower, onOpenStats, onStatsClick,
 }) {
   let chain = [];
   let dragging = false;
@@ -85,12 +85,12 @@ export function createInput({
       return;
     }
 
-    if (game.state === 'ready') {
-      onStart();
+    if (game.state === 'select') {
+      onSelectClick(pt);
       return;
     }
     if (game.state === 'over') {
-      onRestart();
+      onOverClick(pt);
       return;
     }
     if (!canPlay()) return;

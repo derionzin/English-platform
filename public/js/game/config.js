@@ -25,8 +25,9 @@ export const ASSETS = {
     boost: 'sound/boost.mp3',
     blast: 'sound/blast.mp3',
     blastHit: 'sound/blastHit.mp3',
-    levelUp: null,
-    spend: null,
+    levelUp: 'sound/levelUp.mp3',
+    spend: 'sound/spend.mp3',
+    unlock: 'sound/unlock.mp3',
   },
 };
 
@@ -106,6 +107,7 @@ export const XP_PER_PIECE = 2;   // per piece in a chain, with the chain bonus
 export const XP_WIN_BONUS = 60;  // for beating the enemy
 export const xpToNext = (level) => 100 + (level - 1) * 40;
 export const STAT_CAP = 10;      // most points one element can hold
+export const REPLAY_XP_FACTOR = 0.8;
 
 // What each stat point does
 export const STATS = {

@@ -1,9 +1,10 @@
 import {
   ASSETS, CLEAR_TIME, POINTS_PER_PIECE, DAMAGE_PER_PIECE, HEAL_PER_PIECE, DEFENSE_PER_PIECE,
   DELAY_PER_PIECE, BOOST_PER_PIECE, FIRE_POWER_DAMAGE, WATER_POWER_HEAL,
-  XP_PER_PIECE, XP_WIN_BONUS,
+  XP_PER_PIECE, REPLAY_XP_FACTOR,
   COLORS, ELEMENTS, MIN_CHAIN, CHAIN_BONUS, createLayout,
 } from './game/config.js';
+import { ENEMIES, enemyImageKey } from './game/enemies.js';
 import { createDrawUtils, inRect } from './game/draw-utils.js';
 import { drawLoading } from './game/loading.js';
 import { createEffects } from './game/effects.js';
@@ -11,6 +12,9 @@ import { createBoard } from './game/board.js';
 import { createProgress } from './game/progress.js';
 import { createBattle } from './game/battle.js';
 import { createPowers } from './game/powers.js';
+import { createEnemyView } from './game/enemy-view.js';
+import { createStageSelect } from './game/stage-select.js';
+import { createOverScreen } from './game/over-screen.js';
 import { createInput } from './game/input.js';
 import { createRenderer } from './game/renderer.js';
 
@@ -47,7 +51,16 @@ async function loadAndStart() {
   const canvas = $('game');
   drawLoading(canvas, 0, 0);
   const started = performance.now();
-  const result = await Assets.load(ASSETS, (done, total) => drawLoading(canvas, done, total));
+
+  // The game's own images and sounds, plus every enemy's sprite sheet.
+  const manifest = {
+    images: {
+      ...ASSETS.images,
+      ...Object.fromEntries(ENEMIES.map((e) => [enemyImageKey(e), e.sprite && e.sprite.src])),
+    },
+    sounds: ASSETS.sounds,
+  };
+  const result = await Assets.load(manifest, (done, total) => drawLoading(canvas, done, total));
 
   const wait = 400 - (performance.now() - started);
   if (result.total && wait > 0) await new Promise((r) => setTimeout(r, wait));
@@ -69,7 +82,7 @@ function startGame(entry) {
 
   // Shared state that the other modules read.
   const game = {
-    state: 'ready', // ready | playing | over
+    state: 'select', // select | playing | over
     result: null, // 'win' | 'lose'
     overAt: 0,
     phase: 'fall', // idle | clear | fall
@@ -77,6 +90,8 @@ function startGame(entry) {
     time: 0,
     statsOpen: false,
     runXp: 0, // XP earned in the current battle
+    replay: false, // true when the enemy had been beaten before
+    unlockedName: null, // the enemy this win unlocked, if any
     xpFlash: 0,
     resetArmed: 0, // seconds left to confirm "Reset points"
   };
@@ -95,37 +110,33 @@ function startGame(entry) {
     onEnemyDown: () => endGame('win'),
   });
   const powers = createPowers({ layout, effects });
+  const enemyView = createEnemyView(ctx, utils);
+  const stageSelect = createStageSelect({ ctx, W, utils, progress, enemyView, game });
+  const overScreen = createOverScreen({ ctx, W, H, utils, progress, battle, game });
   const input = createInput({
     canvas, board, powers, layout, game,
-    onStart: startPlaying,
-    onRestart: tryRestart,
+    onSelectClick: selectClick,
+    onOverClick: overClick,
     onChain: startChain,
     onPower: usePower,
     onOpenStats: openStats,
     onStatsClick: statsClick,
   });
   const renderer = createRenderer({
-    ctx, W, H, layout, utils, effects, board, battle, powers, progress, input, game, lessonPoints,
+    ctx, W, H, layout, utils, effects, board, battle, powers, progress,
+    enemyView, stageSelect, overScreen, input, game, lessonPoints,
   });
 
   /* ---------- Game states ---------- */
 
-  function startPlaying() {
-    game.state = 'playing';
-    battle.resetAttackTimer();
-    Assets.playMusic('music');
-  }
-
-  function tryRestart() {
-    if (performance.now() - game.overAt > 700) restart();
-  }
-
-  function restart() {
+  function startBattle(index) {
     game.score = 0;
     game.runXp = 0;
     game.result = null;
+    game.replay = false;
+    game.unlockedName = null;
     game.statsOpen = false;
-    battle.reset();
+    battle.start(ENEMIES[index]);
     powers.reset();
     effects.clear();
     clearing = [];
@@ -137,6 +148,36 @@ function startGame(entry) {
     Assets.playMusic('music');
   }
 
+  function toSelect() {
+    game.state = 'select';
+    game.result = null;
+    game.statsOpen = false;
+    battle.clearShots();
+    effects.clear();
+    input.reset();
+    Assets.stopMusic();
+  }
+
+  function selectClick(pt) {
+    const i = stageSelect.cardAt(pt);
+    if (i === -1) return;
+    if (progress.isUnlocked(i)) {
+      startBattle(i);
+    } else {
+      effects.showNotice(`Defeat ${ENEMIES[i - 1].name} first`);
+      Assets.play('invalid');
+    }
+  }
+
+  function overClick(pt) {
+    const id = overScreen.hit(pt);
+    if (!id) return;
+    const index = ENEMIES.indexOf(battle.enemy);
+    if (id === 'next') startBattle(index + 1);
+    else if (id === 'again') startBattle(index);
+    else toSelect();
+  }
+
   function endGame(outcome) {
     if (game.state === 'over') return;
     game.state = 'over';
@@ -145,14 +186,23 @@ function startGame(entry) {
     battle.clearShots();
     input.reset();
     Assets.stopMusic();
+
     if (outcome === 'win') {
+      const enemy = battle.enemy;
+      const index = ENEMIES.indexOf(enemy);
+      const first = progress.markDefeated(enemy.id);
+      game.replay = !first;
+      game.unlockedName = first && ENEMIES[index + 1] ? ENEMIES[index + 1].name : null;
+
       effects.burst(layout.enemyBox.x, layout.enemyBox.y, '#ff6b6b', 40);
       effects.burst(layout.enemyBox.x, layout.enemyBox.y, '#ffd76a', 20);
-      gainXp(XP_WIN_BONUS);
+      gainXp(Math.round(enemy.xp * (first ? 1 : REPLAY_XP_FACTOR)));
+      Assets.play('win');
+      if (game.unlockedName) Assets.play('unlock');
     } else {
       effects.burst(layout.playerBox.x, layout.playerBox.y, '#6ee7ff', 40);
+      Assets.play('lose');
     }
-    Assets.play(outcome === 'win' ? 'win' : 'lose');
   }
 
   /* ---------- XP and stats ---------- */
@@ -354,8 +404,9 @@ function startGame(entry) {
     battle.animate(dt);
     const moving = board.move(dt);
 
-    // The stats panel pauses the battle.
+    // The stats panel pauses the battle, and the select screen has no battle.
     if (game.statsOpen) return;
+    if (game.state === 'select') return;
 
     if (game.state === 'playing') battle.update(dt);
     if (game.state === 'over') return;

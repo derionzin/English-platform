@@ -1,20 +1,21 @@
 import {
   COLS, ROWS, CELL, COLORS, SHAPES, PIECE_SHEET, MIN_CHAIN, ELEMENTS, STAT_CAP,
-  BAR_W, BAR_H, ENEMY_BAR_Y, PLAYER_BAR_Y, ENEMY_MAX_HP,
+  BAR_W, BAR_H, ENEMY_BAR_Y, PLAYER_BAR_Y,
   ENEMY_SHAKE_TIME, ENEMY_LUNGE_TIME, PLAYER_SHAKE_TIME,
 } from './config.js';
+import { ENEMIES } from './enemies.js';
 import { createSpriteSheet, createAnimator } from './animation.js';
 
 // Assets comes from assets.js, which is loaded as a normal script.
 
 export function createRenderer({
-  ctx, W, H, layout, utils, effects, board, battle, powers, progress, input, game, lessonPoints,
+  ctx, W, H, layout, utils, effects, board, battle, powers, progress,
+  enemyView, stageSelect, overScreen, input, game, lessonPoints,
 }) {
   const { roundedRect, text, ready, drawFitted } = utils;
   const { boardX, boardY, boardW, boardH, enemyBox, playerBox } = layout;
 
   const images = {
-    enemy: Assets.image('enemy'),
     player: Assets.image('player'),
   };
 
@@ -115,6 +116,23 @@ export function createRenderer({
       text('PNG goes here', 0, 16, 12, color);
     }
     ctx.restore();
+  }
+
+  // The current enemy: its animated sprite sheet, or a labeled placeholder.
+  function drawEnemy(shake, bob) {
+    const enemy = battle.enemy;
+    const index = ENEMIES.indexOf(enemy);
+    const size = enemy.size || { w: enemyBox.w, h: enemyBox.h };
+    const action = battle.action;
+    const t = action.name === 'idle' ? game.time : action.t;
+
+    const drawn = enemyView.draw(index, action.name, t, enemyBox.x + shake, enemyBox.y + bob, size.w, size.h);
+    if (!drawn) {
+      drawPlaceholder(
+        { x: enemyBox.x, y: enemyBox.y, w: size.w, h: size.h },
+        enemy.name.toUpperCase(), '#ff6b6b', null, shake, bob
+      );
+    }
   }
 
   const hpColor = (fraction) => (fraction > 0.5 ? '#51cf66' : fraction > 0.25 ? '#ffd43b' : '#ff6b6b');
@@ -294,9 +312,18 @@ export function createRenderer({
     button(s.close, 'Close', '#2f6fed', '#ffffff');
   }
 
+  function drawNotice() {
+    const { notice } = effects;
+    if (notice.t <= 0) return;
+    const y = boardY + boardH / 2;
+    roundedRect(W / 2 - 130, y - 20, 260, 40, 20);
+    ctx.fillStyle = 'rgba(11, 16, 32, 0.85)';
+    ctx.fill();
+    text(notice.text, W / 2, y + 6, 16, '#ffffff');
+  }
+
   function render() {
     const { state, result, phase, score, time } = game;
-    const { notice } = effects;
     const grid = board.grid;
     const chain = input.chain;
     const validChain = chain.length >= MIN_CHAIN;
@@ -304,6 +331,17 @@ export function createRenderer({
     ctx.fillStyle = '#0b1020';
     ctx.fillRect(0, 0, W, H);
     effects.drawStars(ctx);
+
+    // Enemy select screen
+    if (state === 'select') {
+      stageSelect.draw();
+      effects.drawParticles(ctx);
+      effects.drawPopups(ctx, text);
+      drawNotice();
+      drawBottomStrip();
+      if (game.statsOpen) drawStatsPanel();
+      return;
+    }
 
     // Enemy
     if (result !== 'win') {
@@ -313,9 +351,13 @@ export function createRenderer({
       const lunge = battle.enemyLunge > 0
         ? Math.sin((1 - battle.enemyLunge / ENEMY_LUNGE_TIME) * Math.PI) * 12
         : 0;
-      drawPlaceholder(enemyBox, 'ENEMY', '#ff6b6b', images.enemy, shake, Math.sin(time * 2) * 3 + lunge);
+      drawEnemy(shake, Math.sin(time * 2) * 3 + lunge);
     }
-    drawBar(enemyBox.x, ENEMY_BAR_Y, battle.enemyHp, battle.enemyTrail, ENEMY_MAX_HP, '#ff6b6b');
+    drawBar(enemyBox.x, ENEMY_BAR_Y, battle.enemyHp, battle.enemyTrail, battle.enemyMax, '#ff6b6b');
+    text(
+      battle.enemy.name,
+      enemyBox.x - BAR_W / 2 - 10, ENEMY_BAR_Y + BAR_H - 1, 13, '#ffb3b3', 'right', 700
+    );
 
     // Attack charge
     const chargeY = ENEMY_BAR_Y + BAR_H + 3;
@@ -465,15 +507,16 @@ export function createRenderer({
     );
     text(`max x${(1 + progress.maxBoost()).toFixed(2)}`, boostX, playerBox.y + 16, 12, '#8a93a8', 'left');
 
-    // Shots in flight
+    // Shots in flight. Volley shots that haven't left yet are skipped.
     battle.shots.forEach((s) => {
+      if (s.wait > 0) return;
       ctx.fillStyle = s.color;
       ctx.beginPath();
-      ctx.arc(s.x, s.y, 9, 0, Math.PI * 2);
+      ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = s.core;
       ctx.beginPath();
-      ctx.arc(s.x, s.y, 4, 0, Math.PI * 2);
+      ctx.arc(s.x, s.y, s.radius * 0.45, 0, Math.PI * 2);
       ctx.fill();
     });
 
@@ -488,45 +531,9 @@ export function createRenderer({
       text(`${el.name} chain ${chain.length}`, W / 2, 32, 16, validChain ? '#ffd76a' : '#c8cdd6', 'center', 600);
     }
 
-    if (notice.t > 0) {
-      const y = boardY + boardH / 2;
-      roundedRect(W / 2 - 130, y - 20, 260, 40, 20);
-      ctx.fillStyle = 'rgba(11, 16, 32, 0.85)';
-      ctx.fill();
-      text(notice.text, W / 2, y + 6, 16, '#ffffff');
-    }
+    drawNotice();
 
-    // Screens
-    if (state === 'ready') {
-      ctx.fillStyle = 'rgba(11, 16, 32, 0.7)';
-      ctx.fillRect(0, 0, W, H);
-      text('Link three', W / 2, H / 2 - 90, 34, '#ffffff', 'center', 600);
-      text('Tap or click to start', W / 2, H / 2 - 50, 18, '#ffd76a');
-      text('Drag across touching pieces of the same kind.', W / 2, H / 2 - 14, 15, '#c8cdd6');
-      text(`Link ${MIN_CHAIN} or more, then let go.`, W / 2, H / 2 + 8, 15, '#c8cdd6');
-      text('Fire hurts, water heals, earth shields.', W / 2, H / 2 + 30, 15, '#c8cdd6');
-      text('Wind delays the enemy attack.', W / 2, H / 2 + 52, 15, '#c8cdd6');
-      text('Night boosts your next chain.', W / 2, H / 2 + 74, 15, '#c8cdd6');
-      text('Full power buttons unlock special moves.', W / 2, H / 2 + 96, 15, '#c8cdd6');
-      text('Earn XP to level up and grow your stats.', W / 2, H / 2 + 118, 15, '#74c0fc');
-      text(`★ ${lessonPoints} lesson points ready`, W / 2, H / 2 + 150, 15, '#6ee7ff');
-    } else if (state === 'over') {
-      ctx.fillStyle = 'rgba(11, 16, 32, 0.75)';
-      ctx.fillRect(0, 0, W, H);
-      const won = result === 'win';
-      text(won ? 'Victory!' : 'Defeat', W / 2, H / 2 - 50, 38, won ? '#ffd76a' : '#ff6b6b', 'center', 700);
-      text(`Score ${score}`, W / 2, H / 2 - 8, 22, '#ffffff', 'center', 600);
-      text(`+${game.runXp} XP`, W / 2, H / 2 + 22, 18, '#74c0fc', 'center', 600);
-      if (progress.points > 0) {
-        text(
-          `${progress.points} stat point${progress.points === 1 ? '' : 's'} to spend`,
-          W / 2, H / 2 + 48, 16, '#ffd76a', 'center', 600
-        );
-      }
-      if (performance.now() - game.overAt > 700) {
-        text('Tap or click to play again', W / 2, H / 2 + 88, 18, '#c8cdd6');
-      }
-    }
+    if (state === 'over') overScreen.draw();
 
     drawBottomStrip();
     if (game.statsOpen) drawStatsPanel();
