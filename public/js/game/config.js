@@ -94,8 +94,8 @@ export const BAR_H = 12;
 export const ENEMY_BAR_Y = 42;
 export const PLAYER_BAR_Y = 546;
 export const DELAY_PER_PIECE = 0.5;  // seconds added to the enemy attack timer (wind)
-export const BOOST_PER_PIECE = 0.15; // added to the next-effect multiplier (night)
-export const BOOST_MAX = 1;          // 1 means the multiplier tops out at x2
+export const BOOST_PER_PIECE = 0.3; // added to the next-effect multiplier (night)
+export const BOOST_MAX = 2;          // 1 means the multiplier tops out at x3
 export const FIRE_POWER_DAMAGE = 30;
 export const WATER_POWER_HEAL = 40; 
 
@@ -103,10 +103,10 @@ export const WATER_POWER_HEAL = 40;
 export const POWER = { w: 84, h: 54, gap: 8, y: 570 };
 
 // Progression
-export const XP_PER_PIECE = 2;   // per piece in a chain, with the chain bonus
+export const XP_PER_PIECE = 4;   // per piece in a chain, with the chain bonus
 export const XP_WIN_BONUS = 60;  // for beating the enemy
 export const xpToNext = (level) => 100 + (level - 1) * 40;
-export const STAT_CAP = 10;      // most points one element can hold
+export const STAT_CAP = 100;      // most points one element can hold
 export const REPLAY_XP_FACTOR = 0.8;
 
 // What each stat point does
@@ -115,7 +115,7 @@ export const STATS = {
   water: { hp: 5, heal: 0.10 },            // +5 max health, +10% healing
   earth: { defense: 2, shield: 0.10 },     // +2 max shield, +10% shield gain
   wind:  { interval: 0.06, delay: 0.10 },  // +6% time between attacks, +10% delay
-  night: { boost: 0.15 },                  // +0.15 max boost
+  night: { boost: 0.3 },                  // +0.3 max boost
 };
 
 // Positions on the canvas (W is the canvas width)
