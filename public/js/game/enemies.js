@@ -23,7 +23,7 @@ const sheet = (src) => ({
   pixelArt: false,
   states: {
     idle:   { row: 0, frames: 10, fps: 10,  mode: 'loop' },
-    attack: { row: 1, frames: 10, fps: 15, mode: 'once' },
+    attack: { row: 1, frames: 10, fps: 15, mode: 'once', fireFrame: 6 },
     hurt:   { row: 2, frames: 10, fps: 15,  mode: 'once' },
   },
 });

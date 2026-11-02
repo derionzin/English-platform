@@ -194,8 +194,9 @@ function startGame(entry) {
       game.replay = !first;
       game.unlockedName = first && ENEMIES[index + 1] ? ENEMIES[index + 1].name : null;
 
-      effects.burst(layout.enemyBox.x, layout.enemyBox.y, '#ff6b6b', 40);
-      effects.burst(layout.enemyBox.x, layout.enemyBox.y, '#ffd76a', 20);
+      const g = battle.enemyGeom();
+      effects.burst(g.x, g.y, '#ff6b6b', 40);
+      effects.burst(g.x, g.y, '#ffd76a', 20);
       gainXp(Math.round(enemy.xp * (first ? 1 : REPLAY_XP_FACTOR)));
       Assets.play('win');
       if (game.unlockedName) Assets.play('unlock');
@@ -401,13 +402,13 @@ function startGame(entry) {
     game.resetArmed = Math.max(0, game.resetArmed - dt);
     effects.update(dt);
     powers.update(dt);
-    battle.animate(dt);
     const moving = board.move(dt);
 
     // The stats panel pauses the battle, and the select screen has no battle.
     if (game.statsOpen) return;
     if (game.state === 'select') return;
 
+    battle.animate(dt);
     if (game.state === 'playing') battle.update(dt);
     if (game.state === 'over') return;
 

@@ -1,5 +1,5 @@
 import {
-  SHOT_SPEED, ENEMY_SHAKE_TIME, ENEMY_LUNGE_TIME, PLAYER_SHAKE_TIME,
+  SHOT_SPEED, ENEMY_SHAKE_TIME, ENEMY_LUNGE_TIME, PLAYER_SHAKE_TIME, ENEMY_GROUND,
 } from './config.js';
 import { ENEMIES } from './enemies.js';
 
@@ -9,19 +9,37 @@ export function createBattle({ layout, effects, progress, onPlayerDown, onEnemyD
   const { enemyBox, playerBox } = layout;
   let enemy = ENEMIES[0];
 
+  // Where the current enemy is: the box it is drawn in and where its shots leave from.
+  function enemyGeom() {
+    const size = enemy.size || { w: enemyBox.w, h: enemyBox.h };
+    const off = enemy.offset || { x: 0, y: 0 };
+    const x = enemyBox.x + off.x;
+    const y = ENEMY_GROUND - size.h / 2 + off.y;
+    const m = enemy.muzzle || { x: 0, y: size.h / 2 };
+    return { x, y, size, muzzle: { x: x + m.x, y: y + m.y } };
+  }
+
+  // Seconds from the start of the attack animation to the frame the shot leaves on.
+  function windup() {
+    const state = enemy.sprite && enemy.sprite.states && enemy.sprite.states.attack;
+    if (!state) return 0;
+    const frame = state.fireFrame ?? Math.floor(state.frames / 2);
+    return Math.max(0, Math.min(frame, state.frames - 1)) / state.fps;
+  }
+
   function makeShot(kind, sx, sy, tx, ty, extra) {
     return {
-      kind, sx, sy, tx, ty, x: sx, y: sy, t: 0, wait: 0, radius: 9, done: false,
+      kind, sx, sy, tx, ty, x: sx, y: sy, t: 0, radius: 9,
+      pending: false, began: true, startIn: 0, releaseIn: 0, done: false,
       dur: Math.hypot(tx - sx, ty - sy) / (extra.speed || SHOT_SPEED),
       ...extra,
     };
   }
 
-  // A shot leaves the enemy: lunge, attack animation and sound.
-  function launch(shot) {
-    if (shot.kind !== 'enemy') return;
+  // The moment an enemy shot leaves: lunge, flash and sound.
+  function release(shot) {
     battle.enemyLunge = ENEMY_LUNGE_TIME;
-    battle.playEnemyAction('attack');
+    effects.burst(shot.sx, shot.sy, shot.color, 6);
     Assets.play('shoot');
   }
 
@@ -43,6 +61,7 @@ export function createBattle({ layout, effects, progress, onPlayerDown, onEnemyD
     action: { name: 'idle', t: 0, dur: 0 }, // which enemy animation is playing
 
     get enemy() { return enemy; },
+    enemyGeom,
 
     // Begin a fresh battle against one of the presets.
     start(newEnemy) {
@@ -91,8 +110,10 @@ export function createBattle({ layout, effects, progress, onPlayerDown, onEnemyD
       battle.attackTimer = battle.interval;
     },
 
+    // Removes every shot, including ones still winding up, and stops the attack animation.
     clearShots() {
       battle.shots = [];
+      battle.action = { name: 'idle', t: 0, dur: 0 };
     },
 
     // Plays 'attack' or 'hurt' from the enemy's sprite sheet, if it has that row.
@@ -105,11 +126,12 @@ export function createBattle({ layout, effects, progress, onPlayerDown, onEnemyD
     },
 
     damageEnemy(amount) {
+      const g = enemyGeom();
       const dealt = Math.round(amount * progress.damageMult());
       battle.enemyHp = Math.max(0, battle.enemyHp - dealt);
       battle.enemyShake = ENEMY_SHAKE_TIME;
       battle.playEnemyAction('hurt');
-      effects.popup({ x: enemyBox.x, y: enemyBox.y, text: `-${dealt}`, color: '#ff6b6b' });
+      effects.popup({ x: g.x, y: g.y, text: `-${dealt}`, color: '#ff6b6b' });
     },
 
     healPlayer(amount) {
@@ -140,13 +162,14 @@ export function createBattle({ layout, effects, progress, onPlayerDown, onEnemyD
     },
 
     addDelay(seconds) {
+      const g = enemyGeom();
       const before = battle.attackTimer;
       battle.attackTimer = Math.min(battle.interval, before + seconds * progress.delayMult());
       const gained = battle.attackTimer - before;
-      effects.burst(enemyBox.x, enemyBox.y, '#63e6be', 12);
+      effects.burst(g.x, g.y, '#63e6be', 12);
       effects.popup({
-        x: enemyBox.x,
-        y: enemyBox.y + 30,
+        x: g.x,
+        y: g.y + 30,
         text: gained > 0.05 ? `+${gained.toFixed(1)}s` : 'Max delay',
         color: '#63e6be',
       });
@@ -173,30 +196,36 @@ export function createBattle({ layout, effects, progress, onPlayerDown, onEnemyD
       return multiplier;
     },
 
-    // The enemy attacks: one shot, or a volley fired one after another.
+    // The enemy attacks: one shot, or a volley. Each shot starts its own attack
+    // animation and leaves the enemy when that animation reaches its fireFrame.
     fireShot() {
       const count = enemy.volley || 1;
       const gap = enemy.volleyGap ?? 0.35;
+      const lead = windup();
+      const g = enemyGeom();
       for (let i = 0; i < count; i++) {
         const spread = (i - (count - 1) / 2) * 28;
-        const shot = makeShot(
-          'enemy',
-          enemyBox.x, enemyBox.y + enemyBox.h / 2,
-          playerBox.x + spread, playerBox.y,
-          { ...enemy.shot, speed: enemy.shotSpeed, wait: i * gap }
+        battle.shots.push(
+          makeShot('enemy', g.muzzle.x, g.muzzle.y, playerBox.x + spread, playerBox.y, {
+            ...enemy.shot,
+            speed: enemy.shotSpeed,
+            pending: true,
+            began: false,
+            startIn: i * gap,
+            releaseIn: i * gap + lead,
+          })
         );
-        battle.shots.push(shot);
-        if (shot.wait === 0) launch(shot);
       }
     },
 
     // The fire power: the player shoots at the enemy.
     fireBlast(damage) {
+      const g = enemyGeom();
       battle.shots.push(
         makeShot(
           'player',
           playerBox.x, playerBox.y - playerBox.h / 2,
-          enemyBox.x, enemyBox.y + enemyBox.h / 2,
+          g.x, g.y,
           { damage, color: '#ff922b', core: '#fff3bf', trail: ['#ffa94d', '#ffe066'] }
         )
       );
@@ -205,9 +234,10 @@ export function createBattle({ layout, effects, progress, onPlayerDown, onEnemyD
     },
 
     hitEnemy(damage) {
+      const g = enemyGeom();
       battle.damageEnemy(damage);
-      effects.burst(enemyBox.x, enemyBox.y, '#ff922b', 24);
-      effects.burst(enemyBox.x, enemyBox.y, '#ffe066', 10);
+      effects.burst(g.x, g.y, '#ff922b', 24);
+      effects.burst(g.x, g.y, '#ffe066', 10);
       Assets.play('blastHit');
       if (battle.enemyHp <= 0) onEnemyDown();
     },
@@ -250,11 +280,24 @@ export function createBattle({ layout, effects, progress, onPlayerDown, onEnemyD
       }
 
       battle.shots.forEach((s) => {
-        if (s.wait > 0) {
-          s.wait -= dt;
-          if (s.wait <= 0) launch(s);
+        // An enemy shot that hasn't left yet: first its attack animation starts,
+        // then the shot is released when the animation reaches its fireFrame.
+        if (s.pending) {
+          if (!s.began) {
+            s.startIn -= dt;
+            if (s.startIn <= 0) {
+              s.began = true;
+              battle.playEnemyAction('attack');
+            }
+          }
+          s.releaseIn -= dt;
+          if (s.releaseIn <= 0) {
+            s.pending = false;
+            release(s);
+          }
           return;
         }
+
         s.t += dt;
         const k = Math.min(1, s.t / s.dur);
         s.x = s.sx + (s.tx - s.sx) * k;
@@ -270,7 +313,7 @@ export function createBattle({ layout, effects, progress, onPlayerDown, onEnemyD
       battle.shots = battle.shots.filter((s) => !s.done);
     },
 
-    // Shake timers, the enemy animation and the fading health bars. Runs every frame.
+    // Shake timers, the enemy animation and the fading health bars.
     animate(dt) {
       battle.enemyShake = Math.max(0, battle.enemyShake - dt);
       battle.enemyLunge = Math.max(0, battle.enemyLunge - dt);

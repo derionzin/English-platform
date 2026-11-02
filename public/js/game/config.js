@@ -47,6 +47,8 @@ export const PLAYER_MAX_HP = 100;
 export const ENEMY_MAX_HP = 100;
 export const DAMAGE_PER_PIECE = 2; // multiplied by the combo
 export const ENEMY_DAMAGE = 10;
+export const ENEMY_GROUND = 164;  // y of the enemy's feet. Bigger enemies grow upward from here.
+export const DEBUG_ENEMY = false; // true draws each enemy's box (green) and shot origin (pink)
 
 // Element effects
 export const HEAL_PER_PIECE = 3;       // water, multiplied by the chain bonus

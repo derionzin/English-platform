@@ -24,15 +24,22 @@ export function createEnemyView(ctx, utils) {
   return {
     has: (index) => !!views[index],
 
-    // Draws one enemy centered on cx, cy. `time` is seconds into the animation.
+    // Draws one enemy inside a w x h box centered on cx, cy. `time` is seconds into
+    // the animation. With alignBottom the sprite sits on the bottom edge of the box.
     // Returns false when the enemy has no sprite, so the caller can draw a placeholder.
-    draw(index, stateName, time, cx, cy, w, h) {
+    draw(index, stateName, time, cx, cy, w, h, alignBottom = false) {
       const view = views[index];
       if (!view) return false;
       const name = view.states[stateName] ? stateName : 'idle';
       const state = view.states[name];
       if (!state) return false;
-      view.sheet.draw(ctx, view.anims[name].frameAt(time), state.row, cx, cy, w, h);
+
+      let y = cy;
+      if (alignBottom) {
+        const scale = Math.min(w / view.sheet.frameW, h / view.sheet.frameH);
+        y = cy + h / 2 - (view.sheet.frameH * scale) / 2;
+      }
+      view.sheet.draw(ctx, view.anims[name].frameAt(time), state.row, cx, y, w, h);
       return true;
     },
   };

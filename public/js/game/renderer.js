@@ -1,6 +1,6 @@
 import {
   COLS, ROWS, CELL, COLORS, SHAPES, PIECE_SHEET, MIN_CHAIN, ELEMENTS, STAT_CAP,
-  BAR_W, BAR_H, ENEMY_BAR_Y, PLAYER_BAR_Y,
+  BAR_W, BAR_H, ENEMY_BAR_Y, PLAYER_BAR_Y, DEBUG_ENEMY,
   ENEMY_SHAKE_TIME, ENEMY_LUNGE_TIME, PLAYER_SHAKE_TIME,
 } from './config.js';
 import { ENEMIES } from './enemies.js';
@@ -118,18 +118,20 @@ export function createRenderer({
     ctx.restore();
   }
 
-  // The current enemy: its animated sprite sheet, or a labeled placeholder.
+
   function drawEnemy(shake, bob) {
     const enemy = battle.enemy;
     const index = ENEMIES.indexOf(enemy);
-    const size = enemy.size || { w: enemyBox.w, h: enemyBox.h };
+    const g = battle.enemyGeom();
     const action = battle.action;
     const t = action.name === 'idle' ? game.time : action.t;
 
-    const drawn = enemyView.draw(index, action.name, t, enemyBox.x + shake, enemyBox.y + bob, size.w, size.h);
+    const drawn = enemyView.draw(
+      index, action.name, t, g.x + shake, g.y + bob, g.size.w, g.size.h, true
+    );
     if (!drawn) {
       drawPlaceholder(
-        { x: enemyBox.x, y: enemyBox.y, w: size.w, h: size.h },
+        { x: g.x, y: g.y, w: g.size.w, h: g.size.h },
         enemy.name.toUpperCase(), '#ff6b6b', null, shake, bob
       );
     }
@@ -353,6 +355,18 @@ export function createRenderer({
         : 0;
       drawEnemy(shake, Math.sin(time * 2) * 3 + lunge);
     }
+
+    if (DEBUG_ENEMY && result !== 'win') {
+      const g = battle.enemyGeom();
+      ctx.strokeStyle = '#00ff88';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(g.x - g.size.w / 2, g.y - g.size.h / 2, g.size.w, g.size.h);
+      ctx.fillStyle = '#ff00aa';
+      ctx.beginPath();
+      ctx.arc(g.muzzle.x, g.muzzle.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
     drawBar(enemyBox.x, ENEMY_BAR_Y, battle.enemyHp, battle.enemyTrail, battle.enemyMax, '#ff6b6b');
     text(
       battle.enemy.name,
@@ -509,7 +523,7 @@ export function createRenderer({
 
     // Shots in flight. Volley shots that haven't left yet are skipped.
     battle.shots.forEach((s) => {
-      if (s.wait > 0) return;
+      if (s.pending) return;
       ctx.fillStyle = s.color;
       ctx.beginPath();
       ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
